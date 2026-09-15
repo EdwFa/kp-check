@@ -1,0 +1,29 @@
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+dist/
+.next/
+out/
+
+# Secrets and local extracts
+.env
+.env.*
+*.log
+incoming/**/.extracts/
