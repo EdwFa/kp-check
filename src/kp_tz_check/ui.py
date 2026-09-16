@@ -18,12 +18,14 @@ from kp_tz_check.serde import from_jsonable, to_jsonable
 
 ROOT = Path(__file__).resolve().parents[2]
 INCOMING = ROOT / "incoming"
+ARCHITECTURE_HTML = ROOT / "docs" / "architecture" / "kp-tz-check.architecture.html"
 
 
 def run_app() -> None:
     st.set_page_config(page_title="Проверка запрос → КП → ТЗ", layout="wide")
     st.title("Проверка комплекта документов")
     st.caption("Запрос → коммерческое предложение → техническое задание перед согласованием")
+    _architecture_diagram()
 
     with st.sidebar:
         st.header("Источник файлов")
@@ -77,7 +79,7 @@ def run_app() -> None:
                         st.error(
                             "Для режима с LLM нужен пакет langgraph. "
                             "Запустите Streamlit из .venv или выполните: "
-                            ".venv/bin/python -m pip install -r requirements.txt"
+                            r".\.venv\Scripts\python.exe -m pip install -r requirements.txt"
                         )
                         return
                     raise
@@ -153,6 +155,17 @@ def run_app() -> None:
         file_name="proverka-komplekta.html",
         mime="text/html",
     )
+
+
+def _architecture_diagram() -> None:
+    with st.expander("Интерактивная диаграмма архитектуры"):
+        if not ARCHITECTURE_HTML.is_file():
+            st.warning(f"Файл диаграммы не найден: {ARCHITECTURE_HTML}")
+            return
+        st.iframe(
+            ARCHITECTURE_HTML,
+            height="content",
+        )
 
 
 def _folder_inventory(incoming: Path) -> None:

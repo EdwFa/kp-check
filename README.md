@@ -26,14 +26,17 @@
 Интерфейс Streamlit:
 
 ```powershell
-.venv/bin/python -m pip install -r requirements.txt
-PYTHONPATH=src .venv/bin/python -m streamlit run app.py
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
 CLI:
 
 ```powershell
-PYTHONPATH=src .venv/bin/python -m kp_tz_check
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m kp_tz_check
 ```
 
 ### Опциональный private LLM
@@ -42,11 +45,12 @@ PYTHONPATH=src .venv/bin/python -m kp_tz_check
 Unsloth Studio или другой OpenAI-compatible сервер, можно явно включить proposer-
 агенты:
 
-```bash
-cp .env.example .env
+```powershell
+Copy-Item .env.example .env
 # добавьте ключ провайдера в .env:
 # UNSLOTH_API_KEY=sk-unsloth-...
-PYTHONPATH=src python -m kp_tz_check --graph
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m kp_tz_check --graph
 ```
 
 `UNSLOTH_API_KEY`, `TOGETHER_API_KEY` и другие ключи читаются из `.env` и не
@@ -58,8 +62,9 @@ PYTHONPATH=src python -m kp_tz_check --graph
 
 Проверка endpoint без документов:
 
-```bash
-PYTHONPATH=src python -m kp_tz_check.llm_smoke
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m kp_tz_check.llm_smoke
 ```
 
 HTML-отчёт пишется в `reports/report.html` (CLI) или скачивается из интерфейса. Если даты или ТЗ не читаются, значения не додумываются — в комментарии будет «требует ручной проверки».
@@ -68,8 +73,9 @@ HTML-отчёт пишется в `reports/report.html` (CLI) или скачи�
 
 Регрессионное сравнение прямого rule-engine и graph-прохода:
 
-```bash
-PYTHONPATH=src python -m kp_tz_check.eval --incoming incoming
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m kp_tz_check.eval --incoming incoming
 ```
 
 Eval проверяет точное совпадение статусов, дат, пар и отсутствие решений HITL
