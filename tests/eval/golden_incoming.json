@@ -1,0 +1,37 @@
+[
+  {
+    "status": "Требует уточнения",
+    "date_mark": "✅",
+    "product_mark": "частично",
+    "outgoing_no": "2738",
+    "kp_file": "2738-09-2026-от-09.09.2026.pdf"
+  },
+  {
+    "status": "Требует уточнения",
+    "date_mark": "✅",
+    "product_mark": "частично",
+    "outgoing_no": "2737",
+    "kp_file": "2737-08-2026-от-27.08.2026.pdf"
+  },
+  {
+    "status": "Не соответствует",
+    "date_mark": "✅",
+    "product_mark": "частично",
+    "outgoing_no": "2739",
+    "kp_file": "2739-09-2026-от-10.09.2026.pdf"
+  },
+  {
+    "status": "Не соответствует",
+    "date_mark": "требует ручной проверки",
+    "product_mark": "❌",
+    "outgoing_no": "2740",
+    "kp_file": null
+  },
+  {
+    "status": "Не соответствует",
+    "date_mark": "требует ручной проверки",
+    "product_mark": "❌",
+    "outgoing_no": "2741",
+    "kp_file": null
+  }
+]

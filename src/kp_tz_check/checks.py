@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
-from kp_tz_check.match import choose_tz, match_items, pair_requests_and_kps, suppliers_conflict
+from kp_tz_check.match import (
+    PairLink,
+    choose_tz,
+    match_items,
+    pair_requests_and_kps_detailed,
+    suppliers_conflict,
+)
 from kp_tz_check.models import (
     DateCheckMark,
     FinalStatus,
@@ -22,12 +29,29 @@ def audit(
     requests: list[RequestRecord],
     kps: list[KpRecord],
     tzs: list[TzRecord],
+    *,
+    pair_links: list[PairLink] | None = None,
+    nomenclature: list[dict] | None = None,
 ) -> list[PairResult]:
-    pairs, unmatched_requests, unmatched_kps = pair_requests_and_kps(requests, kps)
+    if pair_links is None:
+        pair_links, unmatched_requests, unmatched_kps = pair_requests_and_kps_detailed(requests, kps)
+    else:
+        unmatched_requests, unmatched_kps = _unmatched_from_links(requests, kps, pair_links)
     results: list[PairResult] = []
+    nomen_map = _nomenclature_map(nomenclature)
 
-    for request, kp in pairs:
-        results.append(_check_pair(request, kp, choose_tz(tzs, request), tzs_present=bool(tzs)))
+    for link in pair_links:
+        tz = choose_tz(tzs, link.request)
+        mismatches = _lookup_mismatches(nomen_map, link.request, link.kp)
+        results.append(
+            _check_pair(
+                link.request,
+                link.kp,
+                tz,
+                tzs_present=bool(tzs),
+                mismatches=mismatches,
+            )
+        )
     for request in unmatched_requests:
         results.append(_check_pair(request, None, choose_tz(tzs, request), tzs_present=bool(tzs)))
     for kp in unmatched_kps:
@@ -55,13 +79,14 @@ def _check_pair(
     kp: KpRecord | None,
     tz: TzRecord | None,
     tzs_present: bool,
+    mismatches: list[ItemMismatch] | None = None,
 ) -> PairResult:
     comments: list[str] = []
     date_mark, date_comments, date_hard, date_unknown = _check_dates(request, kp)
     comments.extend(date_comments)
 
     product_mark, product_comments, product_hard, product_unknown, mismatches = _check_products(
-        request, kp, tz, tzs_present
+        request, kp, tz, tzs_present, mismatches=mismatches
     )
     comments.extend(product_comments)
 
@@ -178,6 +203,7 @@ def _check_products(
     kp: KpRecord | None,
     tz: TzRecord | None,
     tzs_present: bool,
+    mismatches: list[ItemMismatch] | None = None,
 ) -> tuple[ProductCheckMark, list[str], bool, bool, list[ItemMismatch]]:
     comments: list[str] = []
     if not tzs_present or tz is None:
@@ -193,7 +219,8 @@ def _check_products(
         comments.append("В КП не прочитаны товарные позиции, требует ручной проверки")
         return ProductCheckMark.UNKNOWN, comments, False, True, []
 
-    mismatches = match_items(tz.items, kp.items)
+    if mismatches is None:
+        mismatches = match_items(tz.items, kp.items)
     missing = [item for item in mismatches if item.kind == "missing"]
     extra = [item for item in mismatches if item.kind == "extra"]
     field_issues = [item for item in mismatches if item.kind not in {"missing", "extra"}]
@@ -227,6 +254,53 @@ def summarize(results: list[PairResult]) -> dict[str, list[str] | int]:
         "requests_without_kp": orphans_request,
         "kps_without_request": orphans_kp,
     }
+
+
+def _request_key(item: RequestRecord) -> tuple:
+    return (str(item.source_file), item.outgoing_no)
+
+
+def _kp_key(item: KpRecord) -> tuple:
+    return (str(item.source_file), item.outgoing_no)
+
+
+def _unmatched_from_links(
+    requests: list[RequestRecord],
+    kps: list[KpRecord],
+    links: list[PairLink],
+) -> tuple[list[RequestRecord], list[KpRecord]]:
+    used_requests = {_request_key(item.request) for item in links}
+    used_kps = {_kp_key(item.kp) for item in links}
+    unmatched_requests = [item for item in requests if _request_key(item) not in used_requests]
+    unmatched_kps = [item for item in kps if _kp_key(item) not in used_kps]
+    return unmatched_requests, unmatched_kps
+
+
+def _nomenclature_map(nomenclature: list[dict] | None) -> dict[tuple, dict]:
+    mapping: dict[tuple, dict] = {}
+    for row in nomenclature or []:
+        outgoing = row.get("request_outgoing_no")
+        kp_file = row.get("kp_file_name") or row.get("kp_file")
+        if kp_file:
+            mapping[(outgoing, str(kp_file))] = row
+            mapping[(outgoing, Path(str(kp_file)).name)] = row
+    return mapping
+
+
+def _lookup_mismatches(
+    nomen_map: dict[tuple, dict],
+    request: RequestRecord | None,
+    kp: KpRecord | None,
+) -> list[ItemMismatch] | None:
+    if not nomen_map or kp is None:
+        return None
+    outgoing = request.outgoing_no if request else None
+    row = nomen_map.get((outgoing, str(kp.source_file))) or nomen_map.get((outgoing, kp.source_file.name))
+    if row is None:
+        return None
+    from kp_tz_check.serde import from_jsonable
+
+    return [from_jsonable(ItemMismatch, item) if isinstance(item, dict) else item for item in row.get("mismatches") or []]
 
 
 def _unique(values: list[str]) -> list[str]:

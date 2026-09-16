@@ -246,6 +246,14 @@ def _header_kind(value: str) -> str | None:
         return "unit"
     if any(token in header for token in QTY_HEADERS):
         return "qty"
+    if "сумм" in header or "стоимость" in header:
+        return "price_total"
+    if "цена за" in header or "цена (с" in header:
+        return "price_unit"
+    if header == "цена":
+        return "price_ambiguous"
+    if "ндс" in header:
+        return "vat"
     if header.startswith("№") or "п/п" in header or "п.п" in header:
         return "no"
     return None
@@ -265,6 +273,16 @@ def _items_from_tables(tables: list[list[list[str]]]) -> list[Item]:
         if len(table) < 2:
             continue
         mapping = [_header_kind(cell) for cell in table[0]]
+        if "price_ambiguous" in mapping and "price_unit" in mapping:
+            mapping = [
+                "price_total" if kind == "price_ambiguous" else kind
+                for kind in mapping
+            ]
+        else:
+            mapping = [
+                "price_unit" if kind == "price_ambiguous" else kind
+                for kind in mapping
+            ]
         if mapping.count(None) == len(mapping):
             continue
         implied_unit = ""
@@ -289,6 +307,16 @@ def _items_from_tables(tables: list[list[list[str]]]) -> list[Item]:
             qty = values.get("qty", "").strip()
             if not re.search(r"\d", qty):
                 continue
+            extra = {"article": article} if article else {}
+            price_kind = next(
+                (kind for kind in ("price_unit", "price_total") if values.get(kind, "").strip()),
+                None,
+            )
+            if price_kind:
+                extra["price"] = values[price_kind].strip()
+                extra["price_kind"] = price_kind
+            if values.get("vat", "").strip():
+                extra["vat"] = values["vat"].strip()
             items.append(
                 Item(
                     no=values.get("no", "").strip(),
@@ -296,7 +324,7 @@ def _items_from_tables(tables: list[list[list[str]]]) -> list[Item]:
                     specs=specs,
                     unit=values.get("unit", "").strip() or implied_unit,
                     qty=qty,
-                    extra={"article": article} if article else {},
+                    extra=extra,
                 )
             )
     return items

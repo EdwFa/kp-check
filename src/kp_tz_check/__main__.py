@@ -29,7 +29,20 @@ def main(argv: list[str] | None = None) -> int:
         default=ROOT / "reports" / "report.html",
         help="HTML-отчёт",
     )
+    parser.add_argument(
+        "--graph",
+        action="store_true",
+        help="Прогнать через LangGraph (tools, без LLM)",
+    )
     args = parser.parse_args(argv)
+
+    if args.graph:
+        from kp_tz_check.graph import run_pack
+
+        state = run_pack(incoming=args.incoming, out=args.out)
+        print(state.get("report_text") or "")
+        print(f"\nHTML-отчёт: {state.get('report_path') or args.out}")
+        return 0
 
     requests, kps, tzs = load_incoming(args.incoming)
     results = audit(requests, kps, tzs)

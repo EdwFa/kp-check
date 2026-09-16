@@ -29,6 +29,16 @@ def test_two_similar_kits_match_by_specs_not_name():
     assert any(item.kind == "unit" for item in mismatches)
 
 
+def test_conflicting_cycles_do_not_match_even_with_same_qty_and_name():
+    tz_300 = _item(specs="Количество циклов картриджа – не менее 300; 84 Гб", qty="12")
+    kp_150 = _item(specs="150 циклов, 42 Гб", qty="12")
+    assert item_score(tz_300, kp_150) == 0.0
+    mismatches = match_items([tz_300], [kp_150])
+    kinds = {item.kind for item in mismatches}
+    assert "missing" in kinds
+    assert "extra" in kinds
+
+
 def test_pair_by_supplier_name():
     request = RequestRecord(
         source_file=Path("Запрос.docx"),

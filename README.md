@@ -26,19 +26,54 @@
 Интерфейс Streamlit:
 
 ```powershell
-python -m pip install -r requirements.txt
-$env:PYTHONPATH = "src"
-streamlit run app.py
+.venv/bin/python -m pip install -r requirements.txt
+PYTHONPATH=src .venv/bin/python -m streamlit run app.py
 ```
 
 CLI:
 
 ```powershell
-$env:PYTHONPATH = "src"
-python -m kp_tz_check
+PYTHONPATH=src .venv/bin/python -m kp_tz_check
+```
+
+### Опциональный private LLM
+
+По умолчанию граф работает без LLM. Для локальной модели, запущенной через
+Unsloth Studio или другой OpenAI-compatible сервер, можно явно включить proposer-
+агенты:
+
+```bash
+cp .env.example .env
+# добавьте ключ провайдера в .env:
+# UNSLOTH_API_KEY=sk-unsloth-...
+PYTHONPATH=src python -m kp_tz_check --graph
+```
+
+`UNSLOTH_API_KEY`, `TOGETHER_API_KEY` и другие ключи читаются из `.env` и не
+показываются в UI. Модели задаются через `UNSLOTH_MODEL`, `OLLAMA_MODEL` или
+`TOGETHER_MODEL`. `KP_LLM_BASE_URL` указывается без `/v1`: клиент добавляет путь сам. LLM
+предлагает структуру, связи и действия Critic, но не меняет правила статусов,
+расчёты и запрет на выдуманные даты. Если endpoint недоступен, запуск завершается
+ошибкой, а обычный режим без `KP_LLM_ENABLED=true` остаётся детерминированным.
+
+Проверка endpoint без документов:
+
+```bash
+PYTHONPATH=src python -m kp_tz_check.llm_smoke
 ```
 
 HTML-отчёт пишется в `reports/report.html` (CLI) или скачивается из интерфейса. Если даты или ТЗ не читаются, значения не додумываются — в комментарии будет «требует ручной проверки».
+
+### Eval
+
+Регрессионное сравнение прямого rule-engine и graph-прохода:
+
+```bash
+PYTHONPATH=src python -m kp_tz_check.eval --incoming incoming
+```
+
+Eval проверяет точное совпадение статусов, дат, пар и отсутствие решений HITL
+без явного решения оператора.
 
 ## Что проверяется
 

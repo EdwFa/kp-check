@@ -9,18 +9,42 @@ from kp_tz_check.dates import format_date
 from kp_tz_check.models import FinalStatus, PairResult
 
 
-def write_html_report(results: list[PairResult], dest: Path) -> Path:
+def write_html_report(
+    results: list[PairResult],
+    dest: Path,
+    compliance_log: list[dict] | None = None,
+    hitl_log: list[dict] | None = None,
+) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(render_html(results), encoding="utf-8")
+    dest.write_text(
+        render_html(
+            results,
+            compliance_log=compliance_log,
+            hitl_log=hitl_log,
+        ),
+        encoding="utf-8",
+    )
     return dest
 
 
-def render_html(results: list[PairResult]) -> str:
+def render_html(
+    results: list[PairResult],
+    *,
+    compliance_log: list[dict] | None = None,
+    hitl_log: list[dict] | None = None,
+) -> str:
     summary = summarize(results)
     rows = "\n".join(_row(index, item) for index, item in enumerate(results, start=1))
     diffs = "".join(f"<li>{html.escape(item)}</li>" for item in summary["differences"]) or "<li>Расхождений нет</li>"
     no_kp = "".join(f"<li>{html.escape(item)}</li>" for item in summary["requests_without_kp"])
     no_req = "".join(f"<li>{html.escape(item)}</li>" for item in summary["kps_without_request"])
+    evidence = _compliance_html(compliance_log or [])
+    decisions = _hitl_html(hitl_log or [])
+    status_counts = {
+        FinalStatus.MATCH: sum(item.status == FinalStatus.MATCH for item in results),
+        FinalStatus.NEEDS_REVIEW: sum(item.status == FinalStatus.NEEDS_REVIEW for item in results),
+        FinalStatus.MISMATCH: sum(item.status == FinalStatus.MISMATCH for item in results),
+    }
     generated = datetime.now().strftime("%d.%m.%Y %H:%M")
     return f"""<!DOCTYPE html>
 <html lang="ru">
@@ -50,6 +74,12 @@ def render_html(results: list[PairResult]) -> str:
     .stats {{ display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 28px; }}
     .stat {{ background: var(--card); border: 1px solid var(--line); padding: 12px 16px; min-width: 160px; }}
     .stat b {{ display: block; font-size: 22px; }}
+    .summary-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 24px 0; }}
+    .summary-card {{ background: var(--card); border: 1px solid var(--line); padding: 16px; }}
+    .summary-card b {{ display: block; font-size: 24px; margin-bottom: 4px; }}
+    .summary-card.ok {{ border-left: 5px solid var(--ok); }}
+    .summary-card.warn {{ border-left: 5px solid var(--warn); }}
+    .summary-card.bad {{ border-left: 5px solid var(--bad); }}
     table {{ width: 100%; border-collapse: collapse; background: var(--card); }}
     th, td {{ border: 1px solid var(--line); padding: 10px 12px; vertical-align: top; text-align: left; }}
     th {{ font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }}
@@ -89,16 +119,111 @@ def render_html(results: list[PairResult]) -> str:
   </table>
   <section>
     <h2>Резюме</h2>
-    <p>Полностью соответствующих пар: <b>{summary["matched_pairs"]}</b></p>
+    <div class="summary-grid">
+      <div class="summary-card ok"><b>{status_counts[FinalStatus.MATCH]}</b>Соответствует</div>
+      <div class="summary-card warn"><b>{status_counts[FinalStatus.NEEDS_REVIEW]}</b>Требует уточнения</div>
+      <div class="summary-card bad"><b>{status_counts[FinalStatus.MISMATCH]}</b>Не соответствует</div>
+    </div>
+    <p><b>Итог:</b> {summary["matched_pairs"]} из {summary["total_rows"]} строк полностью соответствуют.</p>
     <h3>Расхождения</h3>
     <ul>{diffs}</ul>
     {"<h3>Запросы без КП</h3><ul>" + no_kp + "</ul>" if no_kp else ""}
     {"<h3>КП без запроса</h3><ul>" + no_req + "</ul>" if no_req else ""}
   </section>
+  {evidence}
+  {decisions}
 </main>
 </body>
 </html>
 """
+
+
+def _compliance_html(log: list[dict]) -> str:
+    if not log:
+        return ""
+    rows = []
+    for entry in log:
+        evidence = entry.get("evidence") or {}
+        source = entry.get("source") or entry.get("source", "—")
+        detail = _evidence_html(evidence, entry)
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(entry.get('concept_id', '—')))}</td>"
+            f"<td>{html.escape(str(entry.get('status', evidence.get('status', '—'))))}</td>"
+            f"<td>{html.escape(str(source))}</td>"
+            f"<td>{detail}</td>"
+            "</tr>"
+        )
+    return (
+        "<section><h2>Доказательства compliance</h2>"
+        "<table><thead><tr><th>Концепция</th><th>Результат</th>"
+        "<th>Источник</th><th>Расчёт и evidence</th></tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table></section>"
+    )
+
+
+def _evidence_html(evidence: dict, entry: dict) -> str:
+    parts: list[str] = []
+    if entry.get("span"):
+        parts.append(f"<p><b>Цитата:</b> «{html.escape(str(entry['span']))}»</p>")
+    groups = evidence.get("groups")
+    if groups:
+        rows = []
+        for name, group in groups.items():
+            suppliers = (group.get("suppliers") or {}).get("supplier_count", "—")
+            rows.append(
+                "<tr>"
+                f"<td>{html.escape(str(name))}</td>"
+                f"<td>{html.escape(', '.join(f'{value:,.2f}' for value in group.get('values', [])))}</td>"
+                f"<td>{html.escape(str(group.get('mean', '—')))}</td>"
+                f"<td>{html.escape(str(group.get('coefficient_of_variation', '—')))}</td>"
+                f"<td>{html.escape(str(suppliers))}</td>"
+                f"<td>{html.escape(str(group.get('status', '—')))}</td>"
+                f"<td>{html.escape(str(group.get('reason') or '—'))}</td>"
+                "</tr>"
+            )
+        parts.append(
+            "<table><thead><tr><th>Позиция</th><th>Цены</th><th>Средняя</th>"
+            "<th>CV, %</th><th>Поставщики</th><th>Результат</th><th>Комментарий</th>"
+            "</tr></thead><tbody>"
+            + "".join(rows)
+            + "</tbody></table>"
+        )
+        parts.append("<p class='meta'>Формула: V = σ / средняя цена × 100%; неоднородность при CV &gt; 33%.</p>")
+    elif evidence.get("check"):
+        check = evidence["check"]
+        parts.append(
+            "<dl>"
+            f"<dt>Оператор</dt><dd>{html.escape(str(check.get('operator', '—')))}</dd>"
+            f"<dt>Порог ТЗ</dt><dd>{html.escape(str(check.get('threshold', '—')))}</dd>"
+            f"<dt>Значение КП</dt><dd>{html.escape(str(check.get('actual', 'не найдено')))}</dd>"
+            "</dl>"
+        )
+    return "".join(parts) or "—"
+
+
+def _hitl_html(log: list[dict]) -> str:
+    if not log:
+        return ""
+    rows = []
+    for entry in log:
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(entry.get('result_index', '—')))}</td>"
+            f"<td>{html.escape(str(entry.get('action', '—')))}</td>"
+            f"<td>{html.escape(str(entry.get('reviewer', '—')))}</td>"
+            f"<td>{html.escape(str(entry.get('reason', entry.get('error', '—'))))}</td>"
+            f"<td>{'принято' if entry.get('accepted') else 'отклонено'}</td>"
+            "</tr>"
+        )
+    return (
+        "<section><h2>Журнал решений оператора</h2>"
+        "<table><thead><tr><th>Строка</th><th>Действие</th><th>Оператор</th>"
+        "<th>Причина</th><th>Результат</th></tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table></section>"
+    )
 
 
 def _row(index: int, item: PairResult) -> str:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 
 from kp_tz_check.instruction import missing_concrete_specs, vague_wording_issue
@@ -66,7 +67,7 @@ def parse_qty(value: str) -> float | None:
 
 
 SPEC_KEYS = (
-    ("cycles", re.compile(r"циклов[^\d]{0,24}(\d+)", re.I)),
+    ("cycles", re.compile(r"(?:циклов[^\d]{0,24}(\d+)|(\d+)\s*циклов)", re.I)),
     ("cycles_model", re.compile(r"3700/(\d{2,4})", re.I)),
     ("gb", re.compile(r"(\d+)\s*гб", re.I)),
     ("hours", re.compile(r"(\d+)\s*час", re.I)),
@@ -81,12 +82,22 @@ def spec_fingerprint(item: Item) -> dict[str, str]:
     for key, pattern in SPEC_KEYS:
         match = pattern.search(blob)
         if match:
+            value = next((group for group in match.groups() if group), None)
+            if not value:
+                continue
             store = "cycles" if key.startswith("cycles") else key
-            found.setdefault(store, match.group(1))
+            found.setdefault(store, value)
     return found
 
 
+def fingerprints_conflict(tz_item: Item, kp_item: Item) -> bool:
+    tz_fp, kp_fp = spec_fingerprint(tz_item), spec_fingerprint(kp_item)
+    return any(key in kp_fp and kp_fp[key] != value for key, value in tz_fp.items())
+
+
 def item_score(tz_item: Item, kp_item: Item) -> float:
+    if fingerprints_conflict(tz_item, kp_item):
+        return 0.0
     name_score = max(
         _ratio(tz_item.name, kp_item.name),
         _ratio(tz_item.fingerprint_text, kp_item.fingerprint_text),
@@ -108,13 +119,28 @@ def item_score(tz_item: Item, kp_item: Item) -> float:
     return score
 
 
+@dataclass
+class PairLink:
+    request: RequestRecord
+    kp: KpRecord
+    reason: str
+    score: float
+
+
 def pair_requests_and_kps(
     requests: list[RequestRecord],
     kps: list[KpRecord],
 ) -> tuple[list[tuple[RequestRecord, KpRecord]], list[RequestRecord], list[KpRecord]]:
+    links, unmatched_requests, unmatched_kps = pair_requests_and_kps_detailed(requests, kps)
+    return [(item.request, item.kp) for item in links], unmatched_requests, unmatched_kps
+
+
+def pair_requests_and_kps_detailed(
+    requests: list[RequestRecord],
+    kps: list[KpRecord],
+) -> tuple[list[PairLink], list[RequestRecord], list[KpRecord]]:
     unused_kps = list(kps)
-    pairs: list[tuple[RequestRecord, KpRecord]] = []
-    unmatched_requests: list[RequestRecord] = []
+    links: list[PairLink] = []
 
     remaining_requests: list[RequestRecord] = []
     for request in requests:
@@ -125,38 +151,52 @@ def pair_requests_and_kps(
         if hit is None:
             remaining_requests.append(request)
         else:
-            pairs.append((request, unused_kps.pop(hit)))
+            kp = unused_kps.pop(hit)
+            links.append(PairLink(request=request, kp=kp, reason="outgoing_no", score=1.0))
 
     still_unmatched: list[RequestRecord] = []
     for request in remaining_requests:
         best_i = None
         best_score = 0.0
+        best_reason = "none"
         for i, kp in enumerate(unused_kps):
-            score = _pair_score(request, kp)
+            score, reason = _pair_score_detailed(request, kp)
             if score > best_score:
                 best_score = score
+                best_reason = reason
                 best_i = i
         if best_i is not None and best_score >= 0.45:
-            pairs.append((request, unused_kps.pop(best_i)))
+            kp = unused_kps.pop(best_i)
+            links.append(PairLink(request=request, kp=kp, reason=best_reason, score=best_score))
         else:
             still_unmatched.append(request)
-    return pairs, still_unmatched, unused_kps
+    return links, still_unmatched, unused_kps
 
 
 def _pair_score(request: RequestRecord, kp: KpRecord) -> float:
-    score = 0.0
+    score, _reason = _pair_score_detailed(request, kp)
+    return score
+
+
+def _pair_score_detailed(request: RequestRecord, kp: KpRecord) -> tuple[float, str]:
     if request.outgoing_no and kp.outgoing_no and request.outgoing_no == kp.outgoing_no:
-        return 1.0
+        return 1.0, "outgoing_no"
+    best_score = 0.0
+    best_reason = "none"
     if request.supplier and kp.supplier:
-        score = max(score, _ratio(request.supplier, kp.supplier))
-    if request.email and request.email.lower() in (kp.body or "").lower():
-        score = max(score, 0.95)
-    if request.outgoing_no and request.outgoing_no in (kp.body or ""):
-        score = max(score, 0.9)
+        score = _ratio(request.supplier, kp.supplier)
+        if score > best_score:
+            best_score, best_reason = score, "supplier"
+    if request.email and request.email.lower() in (kp.body or "").lower() and 0.95 > best_score:
+        best_score, best_reason = 0.95, "email"
+    if request.outgoing_no and request.outgoing_no in (kp.body or "") and 0.9 > best_score:
+        best_score, best_reason = 0.9, "outgoing_in_body"
     filename = kp.source_file.stem
     if request.supplier:
-        score = max(score, _ratio(request.supplier, filename))
-    return score
+        score = _ratio(request.supplier, filename)
+        if score > best_score:
+            best_score, best_reason = score, "filename"
+    return best_score, best_reason
 
 
 def match_items(tz_items: list[Item], kp_items: list[Item]) -> list[ItemMismatch]:
