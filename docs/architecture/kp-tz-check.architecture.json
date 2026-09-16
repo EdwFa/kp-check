@@ -1,0 +1,397 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Архитектура проверки комплекта «запрос → КП → ТЗ»",
+    "output": "kp-tz-check.architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [1080, 720],
+    "repository": {
+      "url": "https://github.com/EdwFa/kp-check",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "b1d80ac6d11aff36a26698e4d6a40d3943983d80"
+    },
+    "views": [
+      {
+        "id": "primary-path",
+        "label": "Вся архитектура",
+        "focus": ["operator", "streamlit", "mode_no_llm", "mode_local_llm", "mode_cloud_llm", "llm_proposers", "orchestrator", "documents", "structure", "pairing", "nomenclature", "audit", "compliance", "review", "reporting"],
+        "note": "Три взаимоисключающих режима запуска и общий путь проверки документов."
+      },
+      {
+        "id": "mode-no-llm",
+        "label": "1 · Без LLM",
+        "focus": ["operator", "streamlit", "mode_no_llm", "orchestrator", "documents", "structure", "pairing", "nomenclature", "audit", "compliance", "review", "reporting"],
+        "note": "Streamlit вызывает audit() и compliance напрямую: только детерминированные правила."
+      },
+      {
+        "id": "mode-local-llm",
+        "label": "2 · Локальная LLM",
+        "focus": ["operator", "streamlit", "mode_local_llm", "llm_proposers", "orchestrator", "documents", "structure", "pairing", "nomenclature", "audit", "compliance", "review", "reporting"],
+        "note": "uStd или Ollama через localhost вызываются адаптерами Structure, Nomenclature и Critic."
+      },
+      {
+        "id": "mode-cloud-llm",
+        "label": "3 · Облачная LLM",
+        "focus": ["operator", "streamlit", "mode_cloud_llm", "llm_proposers", "orchestrator", "documents", "structure", "pairing", "nomenclature", "audit", "compliance", "review", "reporting"],
+        "note": "Sechenov.AI через Together-compatible API вызывается адаптерами Structure, Nomenclature и Critic."
+      },
+      {
+        "id": "governance",
+        "label": "Compliance и контроль",
+        "focus": ["audit", "compliance", "review", "reporting"],
+        "note": "Нормативные правила, critic, HITL и журнал решений."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "operator",
+      "type": "external",
+      "label": "Специалист по закупкам",
+      "sublabel": "загрузка, запуск, решение",
+      "pos": [30, 270],
+      "size": [145, 74]
+    },
+    {
+      "id": "streamlit",
+      "type": "frontend",
+      "label": "Streamlit UI",
+      "sublabel": "app.py · ui.py",
+      "tag": "папки / upload",
+      "pos": [220, 270],
+      "size": [150, 74],
+      "sources": [
+        {"path": "app.py", "line": 1, "label": "точка входа"},
+        {"path": "src/kp_tz_check/ui.py", "line": 23, "end_line": 156, "label": "интерфейс"}
+      ]
+    },
+    {
+      "id": "documents",
+      "type": "external",
+      "label": "Пакет документов",
+      "sublabel": "DOC/DOCX/PDF",
+      "tag": "requests · kp · tz",
+      "pos": [660, 50],
+      "size": [150, 74],
+      "sources": [
+        {"path": "incoming/requests/Запрос.docx", "label": "пример входного файла"}
+      ]
+    },
+    {
+      "id": "orchestrator",
+      "type": "backend",
+      "label": "Оркестрация запуска",
+      "sublabel": "audit() · run_pack()",
+      "tag": "direct или LangGraph",
+      "pos": [430, 270],
+      "size": [165, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/graph.py", "line": 29, "end_line": 167, "label": "граф"},
+        {"path": "src/kp_tz_check/tools.py", "line": 132, "end_line": 683, "label": "tool registry"}
+      ]
+    },
+    {
+      "id": "structure",
+      "type": "backend",
+      "label": "Extract + Structure",
+      "sublabel": "абзацы, таблицы, даты",
+      "tag": "источник подтверждает факт",
+      "pos": [650, 270],
+      "size": [170, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/extract.py", "line": 31, "label": "извлечение"},
+        {"path": "src/kp_tz_check/structure.py", "line": 61, "end_line": 207, "label": "валидация структуры"},
+        {"path": "src/kp_tz_check/dates.py", "line": 76, "end_line": 134, "label": "даты"}
+      ]
+    },
+    {
+      "id": "mode_no_llm",
+      "type": "backend",
+      "label": "1 · Без LLM",
+      "sublabel": "audit + compliance",
+      "tag": "детерминированный режим",
+      "pos": [30, 50],
+      "size": [165, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/ui.py", "line": 47, "end_line": 68, "label": "прямой запуск"}
+      ]
+    },
+    {
+      "id": "mode_local_llm",
+      "type": "external",
+      "label": "2 · Локальная LLM",
+      "sublabel": "uStd · Ollama",
+      "tag": "localhost · JSON-only",
+      "pos": [220, 50],
+      "size": [165, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/ui.py", "line": 47, "end_line": 89, "label": "local providers"},
+        {"path": "src/kp_tz_check/llm.py", "line": 21, "end_line": 152, "label": "клиент"}
+      ]
+    },
+    {
+      "id": "mode_cloud_llm",
+      "type": "cloud",
+      "label": "3 · Облачная LLM",
+      "sublabel": "Sechenov.AI",
+      "tag": "Together API · .env",
+      "pos": [430, 50],
+      "size": [165, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/ui.py", "line": 47, "end_line": 109, "label": "cloud provider"},
+        {"path": "src/kp_tz_check/llm.py", "line": 21, "end_line": 152, "label": "клиент"},
+        {"path": "src/kp_tz_check/llm_proposers.py", "line": 39, "end_line": 127, "label": "proposers"}
+      ]
+    },
+    {
+      "id": "llm_proposers",
+      "type": "backend",
+      "label": "LLM Proposers",
+      "sublabel": "Structure · Nomenclature · Critic",
+      "tag": "советуют · не решают",
+      "pos": [417.5, 160],
+      "size": [190, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/llm_proposers.py", "line": 40, "end_line": 127, "label": "три LLM-адаптера"}
+      ]
+    },
+    {
+      "id": "pairing",
+      "type": "backend",
+      "label": "Сопоставление пар",
+      "sublabel": "запрос ↔ КП",
+      "tag": "исх. № · поставщик · email",
+      "pos": [880, 270],
+      "size": [170, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/match.py", "line": 123, "end_line": 199, "label": "pairing"}
+      ]
+    },
+    {
+      "id": "nomenclature",
+      "type": "backend",
+      "label": "Номенклатура",
+      "sublabel": "ТЗ ↔ позиции КП",
+      "tag": "fingerprint + RapidFuzz",
+      "pos": [880, 500],
+      "size": [170, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/nomenclature.py", "line": 63, "end_line": 200, "label": "matching"},
+        {"path": "src/kp_tz_check/match.py", "line": 62, "end_line": 120, "label": "scores"}
+      ]
+    },
+    {
+      "id": "audit",
+      "type": "backend",
+      "label": "Rule engine",
+      "sublabel": "даты · товары · полнота",
+      "tag": "итоговые статусы",
+      "pos": [650, 500],
+      "size": [170, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/checks.py", "line": 20, "end_line": 209, "label": "аудит"},
+        {"path": "src/kp_tz_check/calculations.py", "line": 1, "label": "расчёты"}
+      ]
+    },
+    {
+      "id": "compliance",
+      "type": "security",
+      "label": "Compliance / OKF",
+      "sublabel": "методички + расчёты",
+      "tag": "223-ФЗ · конкретные значения",
+      "pos": [430, 500],
+      "size": [170, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/compliance.py", "line": 31, "end_line": 108, "label": "compliance"},
+        {"path": "src/kp_tz_check/knowledge.py", "line": 1, "label": "knowledge loader"},
+        {"path": "src/kp_tz_check/knowledge/index.md", "line": 1, "label": "индекс знаний"}
+      ]
+    },
+    {
+      "id": "review",
+      "type": "security",
+      "label": "Critic + HITL",
+      "sublabel": "серая зона и решение",
+      "tag": "понижение · confirm/reject",
+      "pos": [220, 500],
+      "size": [170, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/critic.py", "line": 70, "end_line": 128, "label": "critic"},
+        {"path": "src/kp_tz_check/hitl.py", "line": 14, "end_line": 64, "label": "ручное решение"},
+        {"path": "src/kp_tz_check/journal.py", "line": 13, "end_line": 74, "label": "журнал"}
+      ]
+    },
+    {
+      "id": "reporting",
+      "type": "frontend",
+      "label": "Отчёт и результаты",
+      "sublabel": "таблица · HTML · журнал",
+      "tag": "download / reports",
+      "pos": [30, 500],
+      "size": [150, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/report.py", "line": 12, "end_line": 298, "label": "рендер отчёта"},
+        {"path": "src/kp_tz_check/serde.py", "line": 1, "label": "сериализация"}
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Детерминированное ядро",
+      "wraps": ["orchestrator", "structure", "pairing", "nomenclature", "audit", "compliance", "review", "reporting"],
+      "pad": 22
+    },
+    {
+      "kind": "region",
+      "label": "Выбирается один режим выполнения",
+      "wraps": ["mode_no_llm", "mode_local_llm", "mode_cloud_llm"],
+      "pad": 14
+    },
+    {
+      "kind": "security-group",
+      "label": "LLM не принимает итоговые решения",
+      "wraps": ["mode_local_llm", "mode_cloud_llm", "llm_proposers"],
+      "pad": 14
+    }
+  ],
+  "connections": [
+    {
+      "id": "operator_ui",
+      "from": "operator",
+      "to": "streamlit",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ui_graph",
+      "from": "streamlit",
+      "to": "orchestrator",
+      "variant": "emphasis"
+    },
+    {
+      "id": "documents_structure",
+      "from": "documents",
+      "to": "structure",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "variant": "emphasis"
+    },
+    {
+      "id": "graph_structure",
+      "from": "orchestrator",
+      "to": "structure"
+    },
+    {
+      "id": "structure_pairing",
+      "from": "structure",
+      "to": "pairing",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pairing_nomenclature",
+      "from": "pairing",
+      "to": "nomenclature",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "variant": "emphasis"
+    },
+    {
+      "id": "nomenclature_audit",
+      "from": "nomenclature",
+      "to": "audit",
+      "variant": "emphasis"
+    },
+    {
+      "id": "audit_compliance",
+      "from": "audit",
+      "to": "compliance"
+    },
+    {
+      "id": "compliance_review",
+      "from": "compliance",
+      "to": "review"
+    },
+    {
+      "id": "review_reporting",
+      "from": "review",
+      "to": "reporting",
+      "variant": "emphasis"
+    },
+    {
+      "id": "reporting_operator",
+      "from": "reporting",
+      "to": "operator",
+      "label": "HTML и решение",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "local_llm_proposers",
+      "from": "mode_local_llm",
+      "to": "llm_proposers",
+      "variant": "dashed"
+    },
+    {
+      "id": "cloud_llm_proposers",
+      "from": "mode_cloud_llm",
+      "to": "llm_proposers",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "variant": "dashed"
+    },
+    {
+      "id": "proposers_graph",
+      "from": "llm_proposers",
+      "to": "orchestrator",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Основной pipeline",
+      "items": [
+        "Без LLM: load_incoming → audit → compliance; локальная и облачная LLM: run_pack через LangGraph.",
+        "Tool registry задаёт JSON-схемы и единый invoke-контракт для нод."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Реализованные агенты",
+      "items": [
+        "Load/Structure — извлечение документов и подтверждение фактов; Pairing — связывание запросов и КП.",
+        "Nomenclature — сопоставление позиций ТЗ и КП; Audit — проверка дат, товаров и полноты пакета.",
+        "Compliance — применение методик и нормативных правил; Critic — анализ серой зоны и понижение статуса.",
+        "HITL — фиксация решения специалиста; Reporting — формирование таблицы, HTML-отчёта и журнала."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Гарантии достоверности",
+      "items": [
+        "Дата регистрации КП берётся только из имени файла; остальные даты подтверждаются исходным текстом.",
+        "Rule engine считает статусы; LLM не может повысить результат или подставить неподтверждённый факт."
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Сопоставление",
+      "items": [
+        "Запросы и КП связываются по исходящему номеру, поставщику и email.",
+        "Позиции ТЗ и КП сравниваются по fingerprint, количеству, единицам и нечёткому сходству."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Контроль и результаты",
+      "items": [
+        "Compliance применяет методички и расчёты; Critic обрабатывает только серую зону.",
+        "Ручные решения разрешены для «Требует уточнения» и привязаны к fingerprint пакета."
+      ]
+    }
+  ]
+}
