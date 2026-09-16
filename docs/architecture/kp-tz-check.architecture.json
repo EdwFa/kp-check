@@ -16,7 +16,7 @@
       {
         "id": "primary-path",
         "label": "Вся архитектура",
-        "focus": ["operator", "streamlit", "mode_no_llm", "mode_local_llm", "mode_cloud_llm", "orchestrator", "documents", "structure", "pairing", "nomenclature", "audit", "compliance", "review", "reporting"],
+        "focus": ["operator", "streamlit", "mode_no_llm", "mode_local_llm", "mode_cloud_llm", "llm_proposers", "orchestrator", "documents", "structure", "pairing", "nomenclature", "audit", "compliance", "review", "reporting"],
         "note": "Три взаимоисключающих режима запуска и общий путь проверки документов."
       },
       {
@@ -28,14 +28,14 @@
       {
         "id": "mode-local-llm",
         "label": "2 · Локальная LLM",
-        "focus": ["operator", "streamlit", "mode_local_llm", "orchestrator", "documents", "structure", "pairing", "nomenclature", "audit", "compliance", "review", "reporting"],
-        "note": "uStd или Ollama подключаются через localhost и используются proposer-нодами LangGraph."
+        "focus": ["operator", "streamlit", "mode_local_llm", "llm_proposers", "orchestrator", "documents", "structure", "pairing", "nomenclature", "audit", "compliance", "review", "reporting"],
+        "note": "uStd или Ollama через localhost вызываются адаптерами Structure, Nomenclature и Critic."
       },
       {
         "id": "mode-cloud-llm",
         "label": "3 · Облачная LLM",
-        "focus": ["operator", "streamlit", "mode_cloud_llm", "orchestrator", "documents", "structure", "pairing", "nomenclature", "audit", "compliance", "review", "reporting"],
-        "note": "Sechenov.AI подключается через Together-compatible API; ключ читается из .env."
+        "focus": ["operator", "streamlit", "mode_cloud_llm", "llm_proposers", "orchestrator", "documents", "structure", "pairing", "nomenclature", "audit", "compliance", "review", "reporting"],
+        "note": "Sechenov.AI через Together-compatible API вызывается адаптерами Structure, Nomenclature и Critic."
       },
       {
         "id": "governance",
@@ -146,6 +146,18 @@
       ]
     },
     {
+      "id": "llm_proposers",
+      "type": "backend",
+      "label": "LLM Proposers",
+      "sublabel": "Structure · Nomenclature · Critic",
+      "tag": "советуют · не решают",
+      "pos": [417.5, 160],
+      "size": [190, 74],
+      "sources": [
+        {"path": "src/kp_tz_check/llm_proposers.py", "line": 40, "end_line": 127, "label": "три LLM-адаптера"}
+      ]
+    },
+    {
       "id": "pairing",
       "type": "backend",
       "label": "Сопоставление пар",
@@ -241,7 +253,7 @@
     {
       "kind": "security-group",
       "label": "LLM не принимает итоговые решения",
-      "wraps": ["mode_local_llm", "mode_cloud_llm"],
+      "wraps": ["mode_local_llm", "mode_cloud_llm", "llm_proposers"],
       "pad": 14
     }
   ],
@@ -314,6 +326,28 @@
       "label": "HTML и решение",
       "fromSide": "top",
       "toSide": "bottom"
+    },
+    {
+      "id": "local_llm_proposers",
+      "from": "mode_local_llm",
+      "to": "llm_proposers",
+      "variant": "dashed"
+    },
+    {
+      "id": "cloud_llm_proposers",
+      "from": "mode_cloud_llm",
+      "to": "llm_proposers",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "variant": "dashed"
+    },
+    {
+      "id": "proposers_graph",
+      "from": "llm_proposers",
+      "to": "orchestrator",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "variant": "dashed"
     }
   ],
   "cards": [
