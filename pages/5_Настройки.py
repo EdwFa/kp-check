@@ -33,9 +33,17 @@ st.caption(
     "ЕГРЮЛ при включённом флаге читает открытую форму egrul.nalog.ru. "
     "Остальные флаги без клиента останавливают проверку и сеть не вызывают."
 )
-for name in FLAGS:
-    state = "включён" if flag_state()[name] else "выключен"
-    st.write(f"`{name}`: {state}")
+st.dataframe(
+    [
+        {
+            "Флаг": name,
+            "Состояние": "включён" if flag_state()[name] else "выключен",
+        }
+        for name in FLAGS
+    ],
+    use_container_width=True,
+    hide_index=True,
+)
 
 st.subheader("Файл конфигурации")
 st.info(f"`.env` найден: {'да' if env_path.exists() else 'нет'}")

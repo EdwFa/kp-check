@@ -49,17 +49,22 @@ if has_results():
         with st.expander(f"{item['pair']}. {item['status']} · {item['label']}"):
             st.write(item["reason"])
             st.write(
-                f"Срок действия КП: "
-                f"{item['validity_days']} дн." if item["validity_days"] else
-                "Срок действия КП: не найден"
+                f"Срок действия КП: {item['validity_days']} дн."
+                if item["validity_days"]
+                else "Срок действия КП: не найден"
             )
-            st.json(
-                [
-                    {
-                        "event": event["event"],
-                        "date": event["date"].isoformat(),
-                        "source": event["source"],
-                    }
-                    for event in item["events"]
-                ]
-            )
+            if item["events"]:
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "Событие": event["event"],
+                                "Дата": event["date"].strftime("%d.%m.%Y"),
+                                "Источник": event["source"],
+                            }
+                            for event in item["events"]
+                        ]
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )

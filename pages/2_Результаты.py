@@ -109,8 +109,38 @@ if has_results():
     blocks = (conclusion or {}).get("blocks") or []
     if blocks:
         st.subheader("Сводное заключение")
-        st.write(f"**Итог:** {conclusion.get('verdict') or '—'}")
-        st.caption(conclusion.get("verdict_reason") or "")
+        verdict = conclusion.get("verdict") or "—"
+        reason = conclusion.get("verdict_reason") or ""
+        banner, action = st.columns([3, 1])
+        with banner:
+            if "комиссии" in verdict:
+                st.error(verdict)
+            elif "доработка" in verdict:
+                st.warning(verdict)
+            elif "без изменений" in verdict:
+                st.success(verdict)
+            else:
+                st.info(verdict)
+            if reason:
+                st.caption(reason)
+        with action:
+            st.download_button(
+                "Скачать отчёт",
+                data=render_html(
+                    results,
+                    compliance_log=st.session_state.get("compliance_log", []),
+                    hitl_log=st.session_state.get("hitl_log", []),
+                    calculations_log=st.session_state.get("calculation_log", []),
+                    conclusion=conclusion,
+                    baseline=st.session_state.get("baseline"),
+                    nmck_report=st.session_state.get("nmck_report"),
+                    application_math=st.session_state.get("application_math"),
+                    competition=st.session_state.get("competition"),
+                ).encode("utf-8"),
+                file_name="proverka-komplekta.html",
+                mime="text/html",
+                use_container_width=True,
+            )
         st.dataframe(
             pd.DataFrame(
                 [
@@ -143,19 +173,3 @@ if has_results():
     _results_table(results)
     _pair_details(results)
     _compliance_details(st.session_state.get("compliance_log", []))
-    st.download_button(
-        "Скачать HTML-отчёт",
-        data=render_html(
-            results,
-            compliance_log=st.session_state.get("compliance_log", []),
-            hitl_log=st.session_state.get("hitl_log", []),
-            calculations_log=st.session_state.get("calculation_log", []),
-            conclusion=conclusion,
-            baseline=st.session_state.get("baseline"),
-            nmck_report=st.session_state.get("nmck_report"),
-            application_math=st.session_state.get("application_math"),
-            competition=st.session_state.get("competition"),
-        ).encode("utf-8"),
-        file_name="proverka-komplekta.html",
-        mime="text/html",
-    )

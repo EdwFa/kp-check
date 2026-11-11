@@ -125,7 +125,17 @@ if has_results():
                 else:
                     st.caption("Карточка реестров появится после новой проверки.")
                 st.caption(f"Источник файла: {item['source_file']}")
-                st.json(item["requisites"])
+                requisites = item.get("requisites") or {}
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {"Поле": key, "Значение": value or "—"}
+                            for key, value in requisites.items()
+                        ]
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
                 _show_egrul(item.get("egrul"))
 
 _egrul_request()

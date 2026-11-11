@@ -28,13 +28,20 @@ from kp_tz_check.registries import RegistryConfigError, build_registry
 from kp_tz_check.parse import load_incoming, load_nmck, load_security_documents
 from kp_tz_check.serde import from_jsonable, to_jsonable
 from kp_tz_check.supplier_checks import check_suppliers
+from kp_tz_check.theme import apply_theme
 
 ROOT = Path(__file__).resolve().parents[2]
 INCOMING = ROOT / "incoming"
 
 
 def configure_page(title: str) -> None:
-    st.set_page_config(page_title=title, page_icon="📋", layout="wide")
+    st.set_page_config(
+        page_title=title,
+        page_icon="📋",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+    apply_theme()
 
 
 def save_uploads() -> Path:
@@ -61,30 +68,33 @@ def save_uploads() -> Path:
 
 def source_controls() -> tuple[Path, str, str, bool]:
     """Отрисовывает общие элементы управления запуском проверки."""
-    with st.sidebar:
-        st.header("Источник файлов")
-        source = st.radio(
-            "Откуда брать документы",
-            ("Папки incoming", "Загрузить файлы"),
-            label_visibility="collapsed",
-        )
-        incoming = INCOMING if source == "Папки incoming" else save_uploads()
-        if source == "Папки incoming":
-            st.caption(f"Комплект: `{incoming}`")
-        st.header("Модель")
-        provider = st.selectbox(
-            "Провайдер",
-            ["Без LLM", "local-SLM(uStd)", "local-SLM(oLm)", "Sechenov.AI"],
-        )
-        endpoints = {
-            "local-SLM(uStd)": "http://localhost:8888",
-            "local-SLM(oLm)": "http://localhost:11434",
-            "Sechenov.AI": "https://api.together.ai",
-        }
-        endpoint = st.text_input("Endpoint", value=endpoints.get(provider, ""))
-        if provider != "Без LLM":
-            st.caption("Ключ и модель берутся из .env и не отображаются в UI.")
-        run = st.button("Проверить комплект", type="primary", use_container_width=True)
+    with st.container(border=True):
+        files, model = st.columns(2)
+        with files:
+            st.markdown("**Источник файлов**")
+            source = st.radio(
+                "Откуда брать документы",
+                ("Папки incoming", "Загрузить файлы"),
+                label_visibility="collapsed",
+            )
+            incoming = INCOMING if source == "Папки incoming" else save_uploads()
+            if source == "Папки incoming":
+                st.caption(f"Комплект: `{incoming}`")
+        with model:
+            st.markdown("**Модель**")
+            provider = st.selectbox(
+                "Провайдер",
+                ["Без LLM", "local-SLM(uStd)", "local-SLM(oLm)", "Sechenov.AI"],
+            )
+            endpoints = {
+                "local-SLM(uStd)": "http://localhost:8888",
+                "local-SLM(oLm)": "http://localhost:11434",
+                "Sechenov.AI": "https://api.together.ai",
+            }
+            endpoint = st.text_input("Endpoint", value=endpoints.get(provider, ""))
+            if provider != "Без LLM":
+                st.caption("Ключ и модель берутся из .env и не отображаются в UI.")
+            run = st.button("Проверить комплект", type="primary")
     return incoming, provider, endpoint, run
 
 
