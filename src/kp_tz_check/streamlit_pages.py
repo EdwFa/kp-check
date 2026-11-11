@@ -320,3 +320,16 @@ def _mime_type(path: Path) -> str:
 def render_header(title: str, description: str) -> None:
     st.title(title)
     st.caption(description)
+
+
+def render_project_markdown(path: Path) -> None:
+    """Показать файл документации. Ссылки на README и схему ведут на страницы приложения."""
+    text = path.read_text(encoding="utf-8")
+    for source, target in (
+        ("](docs/system.md)", "](/Схема)"),
+        ("](system.md)", "](/Схема)"),
+        ("](../README.md)", "](/README)"),
+        ("](README.md)", "](/README)"),
+    ):
+        text = text.replace(source, target)
+    st.markdown(text)

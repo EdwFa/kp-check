@@ -30,6 +30,11 @@ def about() -> None:
         - **Календарь** — хронология дат комплекта;
         - **Обеспечение** — блок обеспечения заявки и договора.
 
+        Статус проекта:
+
+        - **README** — описание проекта и порядок проверки;
+        - **Схема работы** — последовательность и реализованные функции.
+
         Служебные:
 
         - **Диагностика** — регрессионная проверка baseline и LangGraph;
@@ -47,19 +52,30 @@ def _page_order(path: Path) -> tuple[int, str]:
 
 
 _SERVICE_PAGES = {"4_Eval.py", "5_Настройки.py"}
+_STATUS_PAGES = {
+    "13_README.py": "README",
+    "14_Схема.py": "Схема работы",
+}
 
 
 def main() -> None:
     work_pages = [st.Page(about, title="О системе", default=True)]
     service_pages = []
+    status_pages = []
     for path in sorted((ROOT / "pages").glob("*.py"), key=_page_order):
-        title = "Диагностика" if path.name == "4_Eval.py" else None
+        title = _STATUS_PAGES.get(path.name)
+        if path.name == "4_Eval.py":
+            title = "Диагностика"
         page = st.Page(path, title=title)
         if path.name in _SERVICE_PAGES:
             service_pages.append(page)
+        elif path.name in _STATUS_PAGES:
+            status_pages.append(page)
         else:
             work_pages.append(page)
-    current = st.navigation({"": work_pages, "Служебные": service_pages})
+    current = st.navigation(
+        {"": work_pages, "Статус проекта": status_pages, "Служебные": service_pages}
+    )
     current.run()
 
 
