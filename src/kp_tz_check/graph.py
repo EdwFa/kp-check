@@ -1,7 +1,8 @@
 """LangGraph-каркас комплекта: ноды зовут tools.
 
-Цепочка: structure_incoming → pair → nomenclature → audit → critic → report.
-Critic смотрит серую зону и может только понизить статус.
+Цепочка: structure_incoming → pair → nomenclature → base_reconcile → audit → blocks → compliance → critic → report.
+Critic смотрит серую зону и может только понизить статус пары. Статус блока и сверку баз он не повышает.
+base_reconcile не пересчитывает статусы пар.
 """
 
 from __future__ import annotations
@@ -11,7 +12,10 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from kp_tz_check.application_math import check_applications
+from kp_tz_check.competition import build_competition_report
 from kp_tz_check.models import PairResult
+from kp_tz_check.nmck import build_nmck_report
 from kp_tz_check.report import render_html, render_text, write_html_report
 from kp_tz_check.serde import from_jsonable
 from kp_tz_check.tools import invoke
@@ -19,7 +23,9 @@ from kp_tz_check.tools import invoke
 NODE_LOAD = "load"
 NODE_PAIR = "pair"
 NODE_NOMENCLATURE = "nomenclature"
+NODE_BASE_RECONCILE = "base_reconcile"
 NODE_AUDIT = "audit"
+NODE_BLOCKS = "blocks"
 NODE_COMPLIANCE = "compliance"
 NODE_CRITIC = "critic"
 NODE_HITL = "hitl"
@@ -33,11 +39,17 @@ class PackState(TypedDict, total=False):
     requests: list[dict[str, Any]]
     kps: list[dict[str, Any]]
     tzs: list[dict[str, Any]]
+    applications: list[dict[str, Any]]
+    nmck: list[dict[str, Any]]
+    security_documents: list[dict[str, Any]]
     pairs: list[dict[str, Any]]
     unmatched_requests: list[dict[str, Any]]
     unmatched_kps: list[dict[str, Any]]
     nomenclature: list[dict[str, Any]]
+    baseline: dict[str, Any]
     results: list[dict[str, Any]]
+    blocks: list[dict[str, Any]]
+    conclusion: dict[str, Any]
     compliance_log: list[dict[str, Any]]
     critic_log: list[str]
     hitl_decisions: list[dict[str, Any]]
@@ -77,6 +89,18 @@ def nomenclature_node(state: PackState) -> dict[str, Any]:
     )
 
 
+def base_reconcile_node(state: PackState) -> dict[str, Any]:
+    return invoke(
+        "base_reconcile",
+        {
+            "requests": state.get("requests") or [],
+            "kps": state.get("kps") or [],
+            "tzs": state.get("tzs") or [],
+            "applications": state.get("applications") or [],
+        },
+    )
+
+
 def audit_node(state: PackState) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "requests": state.get("requests") or [],
@@ -90,8 +114,25 @@ def audit_node(state: PackState) -> dict[str, Any]:
     return invoke("audit", payload)
 
 
+def blocks_node(state: PackState) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "results": state.get("results") or [],
+        "requests": state.get("requests") or [],
+        "kps": state.get("kps") or [],
+        "tzs": state.get("tzs") or [],
+        "applications": state.get("applications") or [],
+    }
+    if state.get("baseline") is not None:
+        payload["baseline"] = state["baseline"]
+    if state.get("nmck") is not None:
+        payload["nmck"] = state["nmck"]
+    if state.get("security_documents") is not None:
+        payload["security_documents"] = state["security_documents"]
+    return invoke("build_blocks", payload)
+
+
 def critic_node(state: PackState) -> dict[str, Any]:
-    return invoke(
+    update = invoke(
         "critique_pack",
         {
             "results": state.get("results") or [],
@@ -99,6 +140,12 @@ def critic_node(state: PackState) -> dict[str, Any]:
             "nomenclature": state.get("nomenclature") or [],
         },
     )
+    update.pop("blocks", None)
+    update.pop("conclusion", None)
+    update.pop("baseline", None)
+    update.pop("nmck", None)
+    update.pop("security_documents", None)
+    return update
 
 
 def compliance_node(state: PackState) -> dict[str, Any]:
@@ -124,12 +171,28 @@ def report_node(state: PackState) -> dict[str, Any]:
     results = [from_jsonable(PairResult, item) for item in state.get("results") or []]
     compliance_log = state.get("compliance_log") or []
     hitl_log = state.get("hitl_log") or []
+    conclusion = state.get("conclusion")
+    baseline = state.get("baseline")
+    nmck_report = build_nmck_report(
+        state.get("kps") or [],
+        tz_items=[item for tz in (state.get("tzs") or []) for item in (tz.get("items") or [])],
+        nmck_records=state.get("nmck") or [],
+        baseline=state.get("baseline"),
+        security_documents=state.get("security_documents") or [],
+    )
+    application_math = check_applications(state.get("applications") or [])
+    competition = build_competition_report(state.get("kps") or [], state.get("tzs") or [])
     update: dict[str, Any] = {
         "report_text": render_text(results),
         "report_html": render_html(
             results,
             compliance_log=compliance_log,
             hitl_log=hitl_log,
+            conclusion=conclusion,
+            baseline=baseline,
+            nmck_report=nmck_report,
+            application_math=application_math,
+            competition=competition,
         ),
     }
     dest = state.get("out")
@@ -140,6 +203,11 @@ def report_node(state: PackState) -> dict[str, Any]:
                 Path(dest),
                 compliance_log=compliance_log,
                 hitl_log=hitl_log,
+                conclusion=conclusion,
+                baseline=baseline,
+                nmck_report=nmck_report,
+                application_math=application_math,
+                competition=competition,
             )
         )
     return update
@@ -150,7 +218,9 @@ def build_pack_graph():
     builder.add_node(NODE_LOAD, load_node)
     builder.add_node(NODE_PAIR, pair_node)
     builder.add_node(NODE_NOMENCLATURE, nomenclature_node)
+    builder.add_node(NODE_BASE_RECONCILE, base_reconcile_node)
     builder.add_node(NODE_AUDIT, audit_node)
+    builder.add_node(NODE_BLOCKS, blocks_node)
     builder.add_node(NODE_COMPLIANCE, compliance_node)
     builder.add_node(NODE_CRITIC, critic_node)
     builder.add_node(NODE_HITL, hitl_node)
@@ -158,8 +228,10 @@ def build_pack_graph():
     builder.add_edge(START, NODE_LOAD)
     builder.add_edge(NODE_LOAD, NODE_PAIR)
     builder.add_edge(NODE_PAIR, NODE_NOMENCLATURE)
-    builder.add_edge(NODE_NOMENCLATURE, NODE_AUDIT)
-    builder.add_edge(NODE_AUDIT, NODE_COMPLIANCE)
+    builder.add_edge(NODE_NOMENCLATURE, NODE_BASE_RECONCILE)
+    builder.add_edge(NODE_BASE_RECONCILE, NODE_AUDIT)
+    builder.add_edge(NODE_AUDIT, NODE_BLOCKS)
+    builder.add_edge(NODE_BLOCKS, NODE_COMPLIANCE)
     builder.add_edge(NODE_COMPLIANCE, NODE_CRITIC)
     builder.add_edge(NODE_CRITIC, NODE_HITL)
     builder.add_edge(NODE_HITL, NODE_REPORT)

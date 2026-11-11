@@ -13,10 +13,10 @@ from kp_tz_check.dates import parse_date_string
 
 
 def to_jsonable(value: Any) -> Any:
+    if isinstance(value, Enum):
+        return to_jsonable(value.value)
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
-    if isinstance(value, Enum):
-        return value.value
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, date):

@@ -53,6 +53,8 @@ def test_tool_registry_covers_extract_parse_match_checks():
                 "match_items",
                 "match_nomenclature",
                 "audit",
+                "base_reconcile",
+                "build_blocks",
                 "critique_pack",
                 "load_concepts",
                 "calculate_market_statistics",
@@ -167,6 +169,27 @@ def test_extract_and_parse_real_request_file():
     numbers = [item["outgoing_no"] for item in parsed["requests"]]
     assert numbers == ["2738", "2737", "2739", "2740", "2741"]
     assert all(item["sent_on"] == "2026-08-27" for item in parsed["requests"])
+
+
+def test_build_blocks_tool_uses_given_records_only():
+    request, tz = _request(), _tz()
+    audited = invoke(
+        "audit",
+        {"requests": to_jsonable([request]), "kps": [], "tzs": to_jsonable([tz])},
+    )
+    built = invoke(
+        "build_blocks",
+        {
+            "results": audited["results"],
+            "requests": to_jsonable([request]),
+            "kps": [],
+            "tzs": to_jsonable([tz]),
+        },
+    )
+    assert len(built["blocks"]) == 8
+    assert built["blocks"][0]["status"] == "Проверен, критичные ошибки"
+    assert built["conclusion"]["verdict"] == "Требуется решение закупочной комиссии"
+    assert all(block["status"] != "Проверен, замечаний нет" for block in built["blocks"])
 
 
 def test_invoke_unknown_and_missing_fields():

@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nHTML-отчёт: {state.get('report_path') or args.out}")
         return 0
 
-    requests, kps, tzs = load_incoming(args.incoming)
+    requests, kps, tzs, _applications = load_incoming(args.incoming)
     results = audit(requests, kps, tzs)
     path = write_html_report(results, args.out)
     print(render_text(results))

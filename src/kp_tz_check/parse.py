@@ -6,7 +6,16 @@ from pathlib import Path
 
 from kp_tz_check.dates import date_from_filename, find_dates, parse_date_string
 from kp_tz_check.extract import ExtractedDoc, extract_document
-from kp_tz_check.models import Item, KpRecord, RequestRecord, TzRecord
+from kp_tz_check.models import (
+    ROW_INSUFFICIENT,
+    ApplicationRecord,
+    Item,
+    KpRecord,
+    NmckRecord,
+    RequestRecord,
+    SecurityDocument,
+    TzRecord,
+)
 
 OUTGOING_RE = re.compile(
     r"исх\.?\s*№?\s*([0-9]+)\s*от\s+(.+)",
@@ -27,11 +36,28 @@ UNIT_HEADERS = ("ед", "единица")
 QTY_HEADERS = ("кол", "количество", "кол-во")
 
 
-def load_incoming(root: Path) -> tuple[list[RequestRecord], list[KpRecord], list[TzRecord]]:
+def load_incoming(
+    root: Path,
+) -> tuple[list[RequestRecord], list[KpRecord], list[TzRecord], list[ApplicationRecord]]:
     requests = _load_requests(root / "requests")
     kps = _load_kps(root / "kp")
     tzs = _load_tzs(root / "tz")
-    return requests, kps, tzs
+    applications = _load_applications(root / "applications")
+    return requests, kps, tzs, applications
+
+
+def load_bids(root: Path):
+    """Пакеты incoming/bids/<участник>/part1. Не входит в четвёрку load_incoming."""
+    from kp_tz_check.bids import load_bid_packages
+
+    return load_bid_packages(root)
+
+
+def load_protocols(root: Path):
+    """Протоколы incoming/protocols. Не входит в четвёрку load_incoming."""
+    from kp_tz_check.protocols import load_protocols as _load
+
+    return _load(root)
 
 
 def _iter_docs(folder: Path) -> list[Path]:
@@ -59,6 +85,96 @@ def _load_kps(folder: Path) -> list[KpRecord]:
 
 def _load_tzs(folder: Path) -> list[TzRecord]:
     return [parse_tz(extract_document(path)) for path in _iter_docs(folder)]
+
+
+def _load_applications(folder: Path) -> list[ApplicationRecord]:
+    return [parse_application(extract_document(path)) for path in _iter_docs(folder)]
+
+
+def load_nmck(root: Path) -> list[NmckRecord]:
+    """Прочитать incoming/nmck. Нет папки — пустой список."""
+    return [parse_nmck(extract_document(path)) for path in _iter_docs(root / "nmck")]
+
+
+def load_security_documents(root: Path) -> list[SecurityDocument]:
+    """Отдельные документы обеспечения. Нет папки — пустой список."""
+    return [
+        SecurityDocument(source_file=path, body=extract_document(path).text)
+        for path in _iter_docs(root / "security")
+    ]
+
+
+_FORMULA_RE = re.compile(r".{0,40}(?:НМЦК|НМЦД|коэффициент\s+вариации|V\s*=).{0,80}", re.IGNORECASE)
+
+
+def parse_nmck(extracted: ExtractedDoc) -> NmckRecord:
+    """Разобрать обоснование. Строка без количества сохраняется: сверка идёт по поставщику и позиции."""
+    from kp_tz_check.calculations import extract_declared_total
+
+    items: list[Item] = []
+    for table in extracted.tables:
+        if len(table) < 2:
+            continue
+        mapping = [
+            "price_unit" if kind == "price_ambiguous" else kind
+            for kind in (_header_kind(cell) for cell in table[0])
+        ]
+        if "name" not in mapping and "supplier" not in mapping:
+            continue
+        for row in table[1:]:
+            joined = " ".join(row).lower()
+            if joined.startswith("итого") or not any(cell.strip() for cell in row):
+                continue
+            values = {kind: (row[idx] if idx < len(row) else "") for idx, kind in enumerate(mapping) if kind}
+            name = values.get("name", "").strip()
+            supplier = values.get("supplier", "").strip()
+            if not name and not supplier:
+                continue
+            extra: dict[str, str] = {}
+            if supplier:
+                extra["supplier"] = supplier
+            price = values.get("price_unit", "").strip() or values.get("price_total", "").strip()
+            if price:
+                extra["price"] = price
+                extra["price_raw"] = price
+            items.append(
+                Item(
+                    no=values.get("no", "").strip(),
+                    name=name,
+                    specs=values.get("specs", "").strip(),
+                    unit=values.get("unit", "").strip(),
+                    qty=values.get("qty", "").strip(),
+                    extra=extra,
+                )
+            )
+    declared = extract_declared_total(extracted.text)
+    formula_match = _FORMULA_RE.search(extracted.text)
+    return NmckRecord(
+        source_file=extracted.path,
+        body=extracted.text,
+        items=items,
+        declared_total=declared.get("raw"),
+        formula=formula_match.group(0).strip() if formula_match else "",
+        notes=list(extracted.notes),
+    )
+
+
+def parse_application(extracted: ExtractedDoc) -> ApplicationRecord:
+    """Разобрать заявку. Пустая цена или код ОКПД2 не заполняются из других колонок."""
+    items = _items_from_tables(extracted.tables)
+    for item in items:
+        price = item.extra.get("price", "").strip()
+        okpd2 = item.extra.get("okpd2", "").strip()
+        item.extra["price"] = price
+        item.extra["okpd2"] = okpd2
+        if not price or not okpd2:
+            item.extra["row_status"] = ROW_INSUFFICIENT
+    return ApplicationRecord(
+        source_file=extracted.path,
+        body=extracted.text,
+        items=items,
+        notes=list(extracted.notes),
+    )
 
 
 def parse_requests(extracted: ExtractedDoc) -> list[RequestRecord]:
@@ -153,7 +269,7 @@ def parse_kp(extracted: ExtractedDoc) -> KpRecord:
     if match:
         outgoing = match.group(1)
 
-    items = _enrich_items_from_text(_items_from_tables(extracted.tables), extracted.text)
+    items = _apply_origin_labels(_enrich_items_from_text(_items_from_tables(extracted.tables), extracted.text), extracted.text)
     return KpRecord(
         source_file=extracted.path,
         prepared_on=prepared,
@@ -236,6 +352,22 @@ def _norm_header(value: str) -> str:
 
 def _header_kind(value: str) -> str | None:
     header = _norm_header(value)
+    if "окпд" in header:
+        return "okpd2"
+    if "скид" in header and "сумм" in header:
+        return "discount_sum"
+    if "скид" in header:
+        return "discount_percent" if ("%" in header or "процент" in header) else "discount"
+    if "поставщик" in header or "источник цен" in header:
+        return "supplier"
+    if "производител" in header:
+        return "manufacturer"
+    if "страна" in header and "поставщик" not in header:
+        return "country"
+    if "реестр" in header:
+        return "registry"
+    if "ст-1" in header or "ст1" in header:
+        return "st1"
     if "артикул" in header:
         return "article"
     if any(token in header for token in NAME_HEADERS):
@@ -308,15 +440,32 @@ def _items_from_tables(tables: list[list[list[str]]]) -> list[Item]:
             if not re.search(r"\d", qty):
                 continue
             extra = {"article": article} if article else {}
-            price_kind = next(
-                (kind for kind in ("price_unit", "price_total") if values.get(kind, "").strip()),
-                None,
-            )
-            if price_kind:
-                extra["price"] = values[price_kind].strip()
-                extra["price_kind"] = price_kind
+            unit_price = values.get("price_unit", "").strip()
+            line_sum = values.get("price_total", "").strip()
+            if unit_price:
+                extra["price"] = unit_price
+                extra["price_kind"] = "price_unit"
+            elif line_sum:
+                extra["price"] = line_sum
+                extra["price_kind"] = "price_total"
+            if line_sum:
+                extra["line_sum"] = line_sum
+            if values.get("discount", "").strip():
+                extra["discount"] = values["discount"].strip()
+            if values.get("discount_percent", "").strip():
+                extra["discount_percent"] = values["discount_percent"].strip()
+            if values.get("discount_sum", "").strip():
+                extra["discount_sum"] = values["discount_sum"].strip()
+            if values.get("supplier", "").strip():
+                extra["supplier"] = values["supplier"].strip()
+            for key in ("manufacturer", "country", "registry", "st1"):
+                raw = values.get(key, "").strip()
+                if raw:
+                    extra[key] = raw
             if values.get("vat", "").strip():
                 extra["vat"] = values["vat"].strip()
+            if values.get("okpd2", "").strip():
+                extra["okpd2"] = values["okpd2"].strip()
             items.append(
                 Item(
                     no=values.get("no", "").strip(),
@@ -327,6 +476,29 @@ def _items_from_tables(tables: list[list[list[str]]]) -> list[Item]:
                     extra=extra,
                 )
             )
+    return items
+
+
+def _apply_origin_labels(items: list[Item], text: str) -> list[Item]:
+    """Брать страну и производителя только из явной подписи, не из адреса."""
+    patterns = {
+        "manufacturer": re.compile(r"производител[ьяю]\s*[:\-]\s*([^\n,;]+)", re.IGNORECASE),
+        "country": re.compile(r"страна\s+происхождения\s*[:\-]\s*([^\n,;]+)", re.IGNORECASE),
+        "registry": re.compile(r"реестров\w*\s+номер\s*[:\-]\s*([^\n,;]+)", re.IGNORECASE),
+    }
+    for item in items:
+        window = text or ""
+        if item.name and item.name in window:
+            start = window.find(item.name)
+            window = window[max(0, start - 180) : start + 240]
+        for key, pattern in patterns.items():
+            if item.extra.get(key):
+                continue
+            match = pattern.search(window) or pattern.search(text or "")
+            if match:
+                item.extra[key] = match.group(1).strip()
+        if not item.extra.get("st1") and re.search(r"\bСТ\s*[-–]?\s*1\b", window, re.IGNORECASE):
+            item.extra["st1"] = "СТ-1"
     return items
 
 

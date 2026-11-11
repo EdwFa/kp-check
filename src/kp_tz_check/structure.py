@@ -14,11 +14,12 @@ from typing import Any, Protocol
 
 from kp_tz_check.dates import date_from_filename, find_dates, parse_date_string
 from kp_tz_check.extract import ExtractedDoc, extract_document
-from kp_tz_check.models import Item, KpRecord, RequestRecord, TzRecord
+from kp_tz_check.models import ApplicationRecord, Item, KpRecord, RequestRecord, TzRecord
 from kp_tz_check.parse import (
     EMAIL_RE,
     PREP_HINTS,
     _iter_docs,
+    parse_application,
     parse_kp,
     parse_requests,
     parse_tz,
@@ -196,16 +197,24 @@ def structure_tz(extracted: ExtractedDoc, proposer: StructureProposer | None = N
     return merge_tz(extracted, baseline, proposal)
 
 
+def structure_application(extracted: ExtractedDoc) -> ApplicationRecord:
+    """Заявка разбирается парсером и не подставляется в запрос или ТЗ."""
+    return parse_application(extracted)
+
+
 def structure_incoming(
     root: Path, proposer: StructureProposer | None = None
-) -> tuple[list[RequestRecord], list[KpRecord], list[TzRecord]]:
+) -> tuple[list[RequestRecord], list[KpRecord], list[TzRecord], list[ApplicationRecord]]:
     proposer = _resolve(proposer)
     requests: list[RequestRecord] = []
     for path in _iter_docs(root / "requests"):
         requests.extend(structure_requests(extract_document(path), proposer))
     kps = [structure_kp(extract_document(path), proposer) for path in _iter_docs(root / "kp")]
     tzs = [structure_tz(extract_document(path), proposer) for path in _iter_docs(root / "tz")]
-    return requests, kps, tzs
+    applications = [
+        structure_application(extract_document(path)) for path in _iter_docs(root / "applications")
+    ]
+    return requests, kps, tzs, applications
 
 
 def merge_requests(

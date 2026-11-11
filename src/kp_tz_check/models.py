@@ -25,6 +25,48 @@ class ProductCheckMark(str, Enum):
     UNKNOWN = "требует ручной проверки"
 
 
+class BlockId(str, Enum):
+    PACKAGE = "1"
+    BASELINE = "2"
+    COMPETITION = "3"
+    NMCK = "4"
+    ARITHMETIC = "5"
+    OKPD2 = "6"
+    NPA = "7"
+    SECURITY = "8"
+
+
+class BlockStatus(str, Enum):
+    CLEAN = "Проверен, замечаний нет"
+    REMARKS = "Проверен, есть замечания"
+    CRITICAL = "Проверен, критичные ошибки"
+    NOT_CHECKED = "Не проверен — документы не предоставлены"
+
+
+class FindingSeverity(str, Enum):
+    NOTE = "справка"
+    REMARK = "замечание"
+    CRITICAL = "критичная"
+
+
+class ConclusionVerdict(str, Enum):
+    PASS = "Можно передавать далее без изменений"
+    REWORK = "Требуется доработка"
+    COMMISSION = "Требуется решение закупочной комиссии"
+
+
+BLOCK_TITLES: dict[BlockId, str] = {
+    BlockId.PACKAGE: "Комплектность пакета и хронология",
+    BlockId.BASELINE: "Сверка позиций закупки",
+    BlockId.COMPETITION: "Национальный режим и конкуренция",
+    BlockId.NMCK: "Расчёт НМЦК",
+    BlockId.ARITHMETIC: "Арифметическая проверка заявки",
+    BlockId.OKPD2: "Коды ОКПД2 и статус СМП",
+    BlockId.NPA: "Актуальность НПА и стандартов",
+    BlockId.SECURITY: "Обеспечение заявки и исполнения контракта",
+}
+
+
 @dataclass
 class Item:
     no: str
@@ -74,6 +116,37 @@ class TzRecord:
     notes: list[str] = field(default_factory=list)
 
 
+ROW_INSUFFICIENT = "недостаточно данных"
+
+
+@dataclass
+class ApplicationRecord:
+    """Заявка. Цена, скидка, НДС, сумма строки и ОКПД2 лежат в Item.extra."""
+
+    source_file: Path
+    body: str = ""
+    items: list[Item] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class NmckRecord:
+    """Обоснование НМЦК. Цена источника лежит в Item.extra, сверка идёт по поставщику и позиции."""
+
+    source_file: Path
+    body: str = ""
+    items: list[Item] = field(default_factory=list)
+    declared_total: str | None = None
+    formula: str = ""
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SecurityDocument:
+    source_file: Path
+    body: str = ""
+
+
 @dataclass
 class ItemMismatch:
     kind: str
@@ -109,3 +182,57 @@ class PairResult:
         else:
             bits.append("дата отправки не прочитана")
         return " · ".join(bits) if bits else self.request.source_file.name
+
+
+@dataclass
+class BlockFinding:
+    code: str
+    text: str
+    source: str | None
+    severity: FindingSeverity
+
+
+@dataclass
+class BlockResult:
+    block_id: BlockId
+    title: str
+    status: BlockStatus
+    findings: list[BlockFinding] = field(default_factory=list)
+    reason: str | None = None
+
+
+@dataclass
+class Clarification:
+    text: str
+    owner: str | None = None
+
+
+@dataclass
+class LinkedRisk:
+    text: str
+    block_ids: list[BlockId] = field(default_factory=list)
+
+
+@dataclass
+class PackConclusion:
+    blocks: list[BlockResult]
+    linked_risks: list[LinkedRisk] = field(default_factory=list)
+    critical_risks: list[str] = field(default_factory=list)
+    clarifications: list[Clarification] = field(default_factory=list)
+    verdict: ConclusionVerdict = ConclusionVerdict.REWORK
+    verdict_reason: str = ""
+
+
+def parse_block_status(value: str) -> BlockStatus:
+    """Принять только точную формулировку статуса блока."""
+    try:
+        return BlockStatus(value)
+    except ValueError as exc:
+        raise ValueError(f"Неизвестный статус блока: {value!r}") from exc
+
+
+def build_conclusion(blocks: list[BlockResult]) -> PackConclusion:
+    """Собрать итог комплекта. Критическая ошибка ведёт к комиссии, непроверенный блок не даёт «можно передавать»."""
+    from kp_tz_check.conclusion import assemble_conclusion
+
+    return assemble_conclusion(blocks)

@@ -86,6 +86,12 @@ _CONSTRAINT_RE = re.compile(
 )
 _MONEY_RE = re.compile(r"(?<!\d)(\d[\d\s]*(?:[.,]\d{1,2})?)(?!\d)")
 _NUMBER_RE = re.compile(r"(?<!\d)(\d+(?:[.,]\d+)?)(?!\d)")
+_TOTAL_RE = re.compile(
+    r"(?:итого|всего|общая\s+стоимость|к\s+оплате|сумма)"
+    r"\s*(?:по\s+договору|кп|заказа)?\s*[:\-]?\s*"
+    r"(\d[\d\s]*(?:[.,]\d{1,2})?)",
+    re.IGNORECASE,
+)
 
 
 def parse_quantity(value: str | None) -> float | None:
@@ -150,6 +156,34 @@ def comparable_price(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_CANONICAL_MONEY = re.compile(r"^(?:\d{1,3}|\d{1,3}(?: \d{3})+),\d{2}$")
+_SHORT_INTEGER = re.compile(r"^\d{1,3}$")
+
+
+def money_format_issue(raw: str | None) -> str | None:
+    """Замечание формата. Разобранное число при этом всё равно считается отдельно."""
+    if raw is None:
+        return None
+    text = str(raw).replace("\u00a0", " ").strip()
+    if not text or _SHORT_INTEGER.fullmatch(text) or _CANONICAL_MONEY.fullmatch(text):
+        return None
+    return "Формат суммы: нужны разряды и десятичная запятая. Расчёт использует разобранное число."
+
+
+def check_antidumping(price: float | None, nmck: float | None) -> dict[str, Any] | None:
+    """Флаг, если цена ниже пересчитанной НМЦК на 25% и больше. Без НМЦК флага нет."""
+    if price is None or nmck is None or nmck <= 0 or not math.isfinite(price) or not math.isfinite(nmck):
+        return None
+    deviation = (price - nmck) / nmck
+    if deviation > -0.25:
+        return None
+    shown = f"{abs(deviation) * 100:.2f}".replace(".", ",")
+    return {
+        "deviation": deviation,
+        "text": f"Цена ниже пересчитанной НМЦК на {shown}%. Антидемпинг, п. 1.9.23.",
+    }
+
+
 def parse_money(value: str | None) -> float | None:
     """Извлечь цену только из явно ценового поля."""
 
@@ -164,6 +198,18 @@ def parse_money(value: str | None) -> float | None:
     except ValueError:
         return None
     return result if math.isfinite(result) and result > 0 else None
+
+
+def extract_declared_total(text: str | None) -> dict[str, Any]:
+    """Найти явно подписанную итоговую сумму в тексте КП."""
+    matches = list(_TOTAL_RE.finditer(text or ""))
+    if not matches:
+        return {"status": "insufficient_data", "value": None, "raw": None}
+    raw = matches[-1].group(1)
+    value = parse_money(raw)
+    if value is None:
+        return {"status": "insufficient_data", "value": None, "raw": raw}
+    return {"status": "ok", "value": value, "raw": raw}
 
 
 def collect_market_prices(
@@ -224,6 +270,112 @@ def collect_market_prices(
             "reason": "Не удалось извлечь явные цены из КП",
         }
     return {"status": overall_status, "groups": groups}
+
+
+def calculate_offer_totals(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Рассчитать суммы строк и итог по каждому КП."""
+    reports: list[dict[str, Any]] = []
+    for offer in offers:
+        lines: list[dict[str, Any]] = []
+        for item in offer.get("items") or []:
+            comparable = comparable_price(item)
+            quantity = parse_quantity(item.get("qty"))
+            if comparable["status"] != "ok" or quantity is None:
+                lines.append(
+                    {
+                        "position": item.get("name") or item.get("no") or "—",
+                        "status": "insufficient_data",
+                        "reason": comparable.get("reason") or "Количество не распознано",
+                    }
+                )
+                continue
+            unit_price = float(comparable["price"])
+            line_total = (
+                unit_price * quantity
+                if comparable["price_kind"] == "price_unit"
+                else unit_price * quantity
+            )
+            lines.append(
+                {
+                    "position": item.get("name") or item.get("no") or "—",
+                    "quantity": quantity,
+                    "unit": comparable.get("unit") or "—",
+                    "unit_price": unit_price,
+                    "line_total": line_total,
+                    "price_kind": comparable["price_kind"],
+                    "vat": comparable.get("vat") or "—",
+                    "status": "ok",
+                    "formula": f"{quantity:g} × {unit_price:,.2f} = {line_total:,.2f}",
+                }
+            )
+        valid_lines = [line for line in lines if line["status"] == "ok"]
+        calculated_total = sum(line["line_total"] for line in valid_lines)
+        declared = extract_declared_total(offer.get("body", ""))
+        if declared["status"] != "ok":
+            arithmetic_status = "review"
+            arithmetic_reason = "Итоговая сумма КП не найдена в тексте документа"
+            difference = None
+        else:
+            difference = calculated_total - declared["value"]
+            arithmetic_status = "pass" if abs(difference) <= 0.01 else "fail"
+            arithmetic_reason = (
+                None
+                if arithmetic_status == "pass"
+                else "Итоговая сумма КП не совпадает с суммой строк"
+            )
+        reports.append(
+            {
+                "supplier": offer.get("supplier") or "—",
+                "source_file": offer.get("source_file") or "—",
+                "lines": lines,
+                "total": calculated_total,
+                "status": "ok" if valid_lines and len(valid_lines) == len(lines) else "review",
+                "declared_total": declared["value"],
+                "declared_total_raw": declared["raw"],
+                "difference": difference,
+                "arithmetic_status": arithmetic_status,
+                "arithmetic_reason": arithmetic_reason,
+                "formula": "Итог КП = Σ (количество × цена за единицу)",
+            }
+        )
+    return reports
+
+
+def calculate_nmck(
+    offers: list[dict[str, Any]],
+    tz_items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Рассчитать НМЦК по средним сопоставимым ценам рынка."""
+    market = collect_market_prices(offers)
+    rows: list[dict[str, Any]] = []
+    tz_items = tz_items or []
+    for position, group in market.get("groups", {}).items():
+        quantity = None
+        for item in tz_items:
+            item_key = str(item.get("name") or item.get("no") or "")
+            if item_key.lower() == position.lower() or position.lower() in item_key.lower():
+                quantity = parse_quantity(item.get("qty"))
+                break
+        unit_nmck = group.get("mean")
+        rows.append(
+            {
+                "position": position,
+                "method": "Среднее арифметическое сопоставимых цен",
+                "unit_nmck": unit_nmck,
+                "quantity": quantity,
+                "total_nmck": unit_nmck * quantity if unit_nmck is not None and quantity else None,
+                "offer_count": group.get("offer_count", 0),
+                "supplier_count": (group.get("suppliers") or {}).get("supplier_count", 0),
+                "status": group.get("status", "insufficient_data"),
+                "source_files": group.get("source_files", []),
+                "formula": "НМЦК = средняя цена за единицу × количество",
+            }
+        )
+    return {
+        "method": "Среднее арифметическое сопоставимых цен",
+        "rows": rows,
+        "status": market.get("status", "insufficient_data"),
+    }
 
 
 def check_spec_constraint(
