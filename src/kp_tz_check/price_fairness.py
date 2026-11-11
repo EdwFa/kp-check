@@ -36,7 +36,7 @@ def assess_prices(
     cv_passed: bool,
     market_price: float | None,
 ) -> dict:
-    sample = [float(row["price"]) for row in rows if row.get("price") is not None]
+    sample = [price for row in rows if (price := _float(row.get("price"))) is not None]
     mean, sigma = _moments(sample)
     assessed = []
     for row in rows:
@@ -81,10 +81,20 @@ def _moments(values: list[float]) -> tuple[float | None, float | None]:
 
 
 def _float(value: object) -> float | None:
-    if value is None or value == "":
+    if value is None or value == "" or isinstance(value, bool):
         return None
-    try:
+    if isinstance(value, (int, float)):
         number = float(value)
+        return number if math.isfinite(number) else None
+    text = (
+        str(value)
+        .replace("\u00a0", "")
+        .replace("\u202f", "")
+        .replace(" ", "")
+        .replace(",", ".")
+    )
+    try:
+        number = float(text)
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None

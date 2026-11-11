@@ -22,8 +22,9 @@ def test_default_flags_do_not_call_the_network(monkeypatch):
     assert found["source_url"] is None
 
 
-def test_enabled_flag_without_client_is_a_config_error(monkeypatch):
-    monkeypatch.setenv("KP_REGISTRY_EGRUL", "1")
+def test_other_registry_without_client_is_a_config_error(monkeypatch):
+    monkeypatch.delenv("KP_REGISTRY_EGRUL", raising=False)
+    monkeypatch.setenv("KP_REGISTRY_RNP", "1")
     with pytest.raises(RegistryConfigError):
         build_registry()
 
@@ -57,6 +58,16 @@ def test_name_conflict_is_a_risk_without_registries():
         kps=[{"source_file": "offer.pdf", "body": "ИНН 7701234567 КПП 770101001 ОГРН 1027700132195"}],
     )[0]
     assert result["card"] == "Выявлены риски"
+
+
+def test_russian_money_text_is_a_price():
+    report = assess_prices(
+        [{"supplier": "А", "position": "Набор", "price": "223 300,00", "nmck": "300 000,00"}],
+        cv_passed=True,
+        market_price=None,
+    )
+    assert report["rows"][0]["price"] == 223300.0
+    assert report["rows"][0]["nmck"] == 300000.0
 
 
 def test_price_boundaries_and_missing_market():

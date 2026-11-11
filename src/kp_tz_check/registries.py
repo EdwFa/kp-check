@@ -1,4 +1,4 @@
-"""Реестры выключены, пока нет клиента. Обычный прогон сеть не вызывает."""
+"""Реестры выключены, пока нет клиента. ЕГРЮЛ читает открытую форму только при своём флаге."""
 
 from __future__ import annotations
 
@@ -39,16 +39,25 @@ def flag_state() -> dict[str, bool]:
     return {name: _enabled(os.environ.get(name)) for name in FLAGS}
 
 
-def build_registry(client: object | None = None) -> RegistryLookup:
+def build_registry(
+    client: object | None = None,
+    *,
+    egrul_transport=None,
+) -> RegistryLookup:
     enabled = [name for name, on in flag_state().items() if on]
-    if enabled and client is None:
+    others = [name for name in enabled if name != "KP_REGISTRY_EGRUL"]
+    if others and client is None:
         raise RegistryConfigError(
-            "Включён реестр без клиента: " + ", ".join(enabled)
+            "Включён реестр без клиента: " + ", ".join(others)
         )
     if client is not None and not enabled:
         return DisabledRegistry()
     if client is not None:
         return _ClientRegistry(client)
+    if "KP_REGISTRY_EGRUL" in enabled:
+        from kp_tz_check.egrul_form import EgrulRegistry
+
+        return EgrulRegistry(egrul_transport)
     return DisabledRegistry()
 
 

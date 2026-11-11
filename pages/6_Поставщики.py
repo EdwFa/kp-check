@@ -7,7 +7,58 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from kp_tz_check.egrul_form import (  # noqa: E402
+    egrul_enabled,
+    fetch_card,
+    fetch_extract,
+    http_transport,
+)
 from kp_tz_check.streamlit_pages import configure_page, has_results, render_header  # noqa: E402
+
+
+def _show_egrul(card: dict | None) -> None:
+    if not card:
+        return
+    st.write(f"Форма ЕГРЮЛ: {card.get('status')}")
+    row = card.get("row") or {}
+    if row:
+        st.write(row.get("name") or "—")
+        st.write(
+            "ИНН {inn}, КПП {kpp}, ОГРН {ogrn}".format(
+                inn=row.get("inn") or "—",
+                kpp=row.get("kpp") or "—",
+                ogrn=row.get("ogrn") or "—",
+            )
+        )
+        if row.get("director"):
+            st.write(row["director"])
+        if row.get("terminated"):
+            st.write(f"Дата прекращения: {row['terminated']}")
+    if card.get("source_url"):
+        st.caption(card["source_url"])
+
+
+def _egrul_request() -> None:
+    st.subheader("Сведения ЕГРЮЛ")
+    if not egrul_enabled():
+        st.info("Получение сведений ЕГРЮЛ не подключено.")
+        return
+    query = st.text_input("ИНН или ОГРН", key="egrul_query")
+    if st.button("Запросить сведения"):
+        st.session_state["egrul_card"] = fetch_card(query, http_transport)
+        st.session_state.pop("egrul_pdf", None)
+    card = st.session_state.get("egrul_card")
+    _show_egrul(card if isinstance(card, dict) else None)
+    token = ((card or {}).get("row") or {}).get("extract_token") if isinstance(card, dict) else ""
+    if token and st.button("Запросить выписку"):
+        statement = fetch_extract(token, http_transport)
+        st.session_state["egrul_pdf"] = statement
+    statement = st.session_state.get("egrul_pdf")
+    if isinstance(statement, dict) and statement.get("pdf"):
+        st.download_button("Скачать выписку", data=statement["pdf"], file_name="egrul.pdf")
+    elif isinstance(statement, dict):
+        st.info(statement.get("status") or "")
+
 
 configure_page("Поставщики и реквизиты")
 render_header(
@@ -75,3 +126,6 @@ if has_results():
                     st.caption("Карточка реестров появится после новой проверки.")
                 st.caption(f"Источник файла: {item['source_file']}")
                 st.json(item["requisites"])
+                _show_egrul(item.get("egrul"))
+
+_egrul_request()

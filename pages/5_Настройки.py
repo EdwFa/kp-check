@@ -29,7 +29,10 @@ for label, model_key, secret_key in providers:
         st.write(f"API key: `{secret_key}` — значение скрыто")
 
 st.subheader("Реестры")
-st.caption("Флаги выключены. Включение без клиента останавливает проверку, сеть не вызывается.")
+st.caption(
+    "ЕГРЮЛ при включённом флаге читает открытую форму egrul.nalog.ru. "
+    "Остальные флаги без клиента останавливают проверку и сеть не вызывают."
+)
 for name in FLAGS:
     state = "включён" if flag_state()[name] else "выключен"
     st.write(f"`{name}`: {state}")

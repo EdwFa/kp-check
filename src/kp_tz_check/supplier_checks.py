@@ -63,7 +63,9 @@ def check_suppliers(
         kp_supplier = kp.get("supplier")
         conflict = suppliers_conflict(request_supplier, kp_supplier)
         registry = registry or DisabledRegistry()
-        criteria = _criteria(registry, kp_supplier or "", requisites)
+        registry_key = requisites.get("inn") or requisites.get("ogrn") or kp_supplier or ""
+        criteria = _criteria(registry, registry_key)
+        egrul = getattr(registry, "card_for", lambda key: None)(registry_key)
         if conflict:
             status = "FAIL"
             reason = "Название поставщика в КП не совпадает с адресатом запроса."
@@ -90,13 +92,13 @@ def check_suppliers(
                 "supplier_conflict": conflict,
                 "criteria": criteria,
                 "card": card,
+                "egrul": egrul if isinstance(egrul, dict) and egrul.get("status") != "нужен ИНН или ОГРН" else None,
             }
         )
     return checks
 
 
-def _criteria(registry: RegistryLookup, supplier: str, requisites: dict[str, str | None]) -> list[dict[str, Any]]:
-    key = requisites.get("inn") or supplier
+def _criteria(registry: RegistryLookup, key: str) -> list[dict[str, Any]]:
     rows = []
     for kind, title in CRITERIA:
         found = registry.lookup(kind, key)

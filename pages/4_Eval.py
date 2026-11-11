@@ -9,15 +9,15 @@ sys.path.insert(0, str(ROOT / "src"))
 from kp_tz_check.eval import evaluate_incoming, evaluate_suite  # noqa: E402
 from kp_tz_check.streamlit_pages import configure_page, render_header  # noqa: E402
 
-configure_page("Eval и диагностика")
+configure_page("Диагностика")
 render_header(
-    "Eval и диагностика",
+    "Диагностика",
     "Регрессионная проверка baseline и LangGraph на текущем комплекте.",
 )
 
 incoming = st.session_state.get("last_run_path", str(ROOT / "incoming"))
-st.caption(f"Комплект для eval: `{incoming}`")
-if st.button("Запустить eval", type="primary"):
+st.caption(f"Комплект для диагностики: `{incoming}`")
+if st.button("Запустить диагностику", type="primary"):
     with st.spinner("Сравниваю direct audit и graph…"):
         result = evaluate_incoming(incoming)
     c1, c2, c3 = st.columns(3)

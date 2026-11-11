@@ -24,13 +24,16 @@ def about() -> None:
         - **Проверка** — загрузка документов и запуск анализа;
         - **Результаты** — сводка восьми блоков, пары документов и доказательства compliance;
         - **Решения** — подтверждение результатов оператором;
-        - **Eval** — регрессионная диагностика baseline и LangGraph;
-        - **Настройки** — состояние конфигурации провайдеров;
         - **Поставщики** — реквизиты из последней проверки;
         - **Расчёты** — блоки НМЦК и арифметики;
         - **ОКПД2** — блок кодов и справочника СМП;
         - **Календарь** — хронология дат комплекта;
         - **Обеспечение** — блок обеспечения заявки и договора.
+
+        Служебные:
+
+        - **Диагностика** — регрессионная проверка baseline и LangGraph;
+        - **Настройки** — состояние конфигурации провайдеров.
         """
     )
     st.info("Начните со страницы «Проверка». Результаты сохраняются при переходе между страницами.")
@@ -43,14 +46,20 @@ def _page_order(path: Path) -> tuple[int, str]:
     return (10**9, path.stem)
 
 
+_SERVICE_PAGES = {"4_Eval.py", "5_Настройки.py"}
+
+
 def main() -> None:
-    section_pages = [
-        st.Page(path)
-        for path in sorted((ROOT / "pages").glob("*.py"), key=_page_order)
-    ]
-    current = st.navigation(
-        [st.Page(about, title="О системе", default=True), *section_pages]
-    )
+    work_pages = [st.Page(about, title="О системе", default=True)]
+    service_pages = []
+    for path in sorted((ROOT / "pages").glob("*.py"), key=_page_order):
+        title = "Диагностика" if path.name == "4_Eval.py" else None
+        page = st.Page(path, title=title)
+        if path.name in _SERVICE_PAGES:
+            service_pages.append(page)
+        else:
+            work_pages.append(page)
+    current = st.navigation({"": work_pages, "Служебные": service_pages})
     current.run()
 
 
