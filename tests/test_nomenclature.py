@@ -83,7 +83,7 @@ def test_proposer_can_link_divergent_names_when_article_is_in_both():
 
 def test_incoming_pairs_by_outgoing_number():
     incoming = ROOT / "incoming"
-    requests, kps, _tzs = load_incoming(incoming)
+    requests, kps, _tzs, _applications = load_incoming(incoming)
     paired = invoke(
         "pair_requests_and_kps",
         {"requests": to_jsonable(requests), "kps": to_jsonable(kps)},

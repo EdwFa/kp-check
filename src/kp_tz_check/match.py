@@ -224,7 +224,7 @@ def match_items(tz_items: list[Item], kp_items: list[Item]) -> list[ItemMismatch
             continue
         _, idx, kp_item = best
         used_kp.add(idx)
-        mismatches.extend(_compare_matched(tz_item, kp_item))
+        mismatches.extend(compare_requirement(tz_item, kp_item))
 
     for idx, kp_item in unused:
         if idx not in used_kp:
@@ -239,59 +239,86 @@ def match_items(tz_items: list[Item], kp_items: list[Item]) -> list[ItemMismatch
     return mismatches
 
 
-def _compare_matched(tz_item: Item, kp_item: Item) -> list[ItemMismatch]:
+# с чем сравниваем, в чём, родительный падеж. «ТЗ» сохраняет прежние формулировки блока 1.
+_REQUIREMENT_FORMS = {
+    "ТЗ": ("ТЗ", "ТЗ", "ТЗ"),
+    "Заявка": ("заявкой", "заявке", "заявки"),
+    "Запрос": ("запросом", "запросе", "запроса"),
+    "Согласованное требование": (
+        "согласованным требованием",
+        "согласованном требовании",
+        "согласованного требования",
+    ),
+}
+
+
+def compare_requirement(
+    requirement: Item,
+    offer: Item,
+    requirement_label: str = "ТЗ",
+) -> list[ItemMismatch]:
+    """Сравнить строку КП с одним базовым требованием. Блок 1 по-прежнему зовёт это с подписью «ТЗ»."""
+    with_label, in_label, genitive = _REQUIREMENT_FORMS.get(
+        requirement_label, (requirement_label, requirement_label, requirement_label)
+    )
     details: list[ItemMismatch] = []
     name_ok = (
-        _ratio(tz_item.name, kp_item.name) >= 0.55
-        or spec_fingerprint(tz_item).get("cycles") == spec_fingerprint(kp_item).get("cycles")
+        _ratio(requirement.name, offer.name) >= 0.55
+        or spec_fingerprint(requirement).get("cycles") == spec_fingerprint(offer).get("cycles")
     )
     if not name_ok:
         details.append(
-            ItemMismatch("name", tz_item, kp_item, "Наименование в КП не совпадает с ТЗ")
+            ItemMismatch("name", requirement, offer, f"Наименование в КП не совпадает с {with_label}")
         )
 
-    tz_fp, kp_fp = spec_fingerprint(tz_item), spec_fingerprint(kp_item)
-    if tz_fp and kp_fp:
-        for key, tz_val in tz_fp.items():
-            if key in kp_fp and kp_fp[key] != tz_val:
+    requirement_fp, offer_fp = spec_fingerprint(requirement), spec_fingerprint(offer)
+    if requirement_fp and offer_fp:
+        for key, requirement_value in requirement_fp.items():
+            if key in offer_fp and offer_fp[key] != requirement_value:
                 details.append(
                     ItemMismatch(
                         "specs",
-                        tz_item,
-                        kp_item,
-                        f"Характеристика {key}: в ТЗ {tz_val}, в КП {kp_fp[key]}",
+                        requirement,
+                        offer,
+                        f"Характеристика {key}: в {in_label} {requirement_value}, в КП {offer_fp[key]}",
                     )
                 )
-    elif tz_item.specs and kp_item.specs and _ratio(tz_item.specs, kp_item.specs) < 0.55:
-        details.append(ItemMismatch("specs", tz_item, kp_item, "Характеристики ТЗ и КП расходятся"))
+    elif requirement.specs and offer.specs and _ratio(requirement.specs, offer.specs) < 0.55:
+        details.append(
+            ItemMismatch("specs", requirement, offer, f"Характеристики {genitive} и КП расходятся")
+        )
 
-    tz_unit, kp_unit = normalize_unit(tz_item.unit), normalize_unit(kp_item.unit)
-    kp_unit_looks_price = bool(re.search(r"\d[\s\d]*[.,]\d{2}", kp_item.unit or ""))
-    if tz_unit and kp_unit and tz_unit != kp_unit and not kp_unit_looks_price:
+    requirement_unit, offer_unit = normalize_unit(requirement.unit), normalize_unit(offer.unit)
+    offer_unit_looks_price = bool(re.search(r"\d[\s\d]*[.,]\d{2}", offer.unit or ""))
+    if requirement_unit and offer_unit and requirement_unit != offer_unit and not offer_unit_looks_price:
         details.append(
             ItemMismatch(
                 "unit",
-                tz_item,
-                kp_item,
-                f"Единица измерения: в ТЗ «{tz_item.unit}», в КП «{kp_item.unit}»",
+                requirement,
+                offer,
+                f"Единица измерения: в {in_label} «{requirement.unit}», в КП «{offer.unit}»",
             )
         )
 
-    tz_qty, kp_qty = parse_qty(tz_item.qty), parse_qty(kp_item.qty)
-    if tz_qty is not None and kp_qty is not None and tz_qty != kp_qty:
+    requirement_qty, offer_qty = parse_qty(requirement.qty), parse_qty(offer.qty)
+    if requirement_qty is not None and offer_qty is not None and requirement_qty != offer_qty:
         details.append(
             ItemMismatch(
                 "qty",
-                tz_item,
-                kp_item,
-                f"Количество: в ТЗ {tz_item.qty}, в КП {kp_item.qty}",
+                requirement,
+                offer,
+                f"Количество: в {in_label} {requirement.qty}, в КП {offer.qty}",
             )
         )
-    vague = vague_wording_issue(tz_item, kp_item)
+    vague = vague_wording_issue(requirement, offer)
     if vague:
         details.append(vague)
-    details.extend(missing_concrete_specs(tz_item, kp_item, tz_fp, kp_fp))
+    details.extend(missing_concrete_specs(requirement, offer, requirement_fp, offer_fp))
     return details
+
+
+def _compare_matched(tz_item: Item, kp_item: Item) -> list[ItemMismatch]:
+    return compare_requirement(tz_item, kp_item)
 
 
 def choose_tz(tzs: list[TzRecord], request: RequestRecord | None) -> TzRecord | None:

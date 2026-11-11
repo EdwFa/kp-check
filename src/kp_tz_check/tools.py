@@ -9,11 +9,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from kp_tz_check.base_reconcile import reconcile_pack
+from kp_tz_check.blocks import build_blocks
 from kp_tz_check.checks import audit, summarize
 from kp_tz_check.extract import ExtractedDoc, extract_document
 from kp_tz_check.match import PairLink, match_items, pair_requests_and_kps_detailed
-from kp_tz_check.models import Item, KpRecord, RequestRecord, TzRecord
-from kp_tz_check.parse import load_incoming, parse_kp, parse_requests, parse_tz
+from kp_tz_check.models import Item, KpRecord, RequestRecord, TzRecord, build_conclusion
+from kp_tz_check.parse import (
+    load_incoming,
+    load_nmck,
+    load_security_documents,
+    parse_kp,
+    parse_requests,
+    parse_tz,
+)
 from kp_tz_check.serde import from_jsonable, to_jsonable
 from kp_tz_check.structure import structure_incoming, structure_kp, structure_requests, structure_tz
 from kp_tz_check.nomenclature import match_pack_nomenclature
@@ -101,6 +110,18 @@ TZ_SCHEMA = {
     "required": ["source_file"],
 }
 
+APPLICATION_SCHEMA = {
+    "type": "object",
+    "description": "Заявка. Не является запросом и не восстанавливает позиции ТЗ.",
+    "properties": {
+        "source_file": {"type": "string"},
+        "body": {"type": "string"},
+        "items": {"type": "array", "items": ITEM_SCHEMA},
+        "notes": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["source_file"],
+}
+
 MISMATCH_SCHEMA = {
     "type": "object",
     "properties": {
@@ -178,11 +199,13 @@ def tool_parse_tz(extracted: dict[str, Any]) -> dict[str, Any]:
 
 
 def tool_load_incoming(incoming: str) -> dict[str, Any]:
-    requests, kps, tzs = load_incoming(Path(incoming))
+    requests, kps, tzs, applications = load_incoming(Path(incoming))
     return {
         "requests": to_jsonable(requests),
         "kps": to_jsonable(kps),
         "tzs": to_jsonable(tzs),
+        "applications": to_jsonable(applications),
+        **_nmck_payload(incoming),
     }
 
 
@@ -202,11 +225,21 @@ def tool_structure_tz(extracted: dict[str, Any]) -> dict[str, Any]:
 
 
 def tool_structure_incoming(incoming: str) -> dict[str, Any]:
-    requests, kps, tzs = structure_incoming(Path(incoming))
+    requests, kps, tzs, applications = structure_incoming(Path(incoming))
     return {
         "requests": to_jsonable(requests),
         "kps": to_jsonable(kps),
         "tzs": to_jsonable(tzs),
+        "applications": to_jsonable(applications),
+        **_nmck_payload(incoming),
+    }
+
+
+def _nmck_payload(incoming: str) -> dict[str, Any]:
+    root = Path(incoming)
+    return {
+        "nmck": to_jsonable(load_nmck(root)),
+        "security_documents": to_jsonable(load_security_documents(root)),
     }
 
 
@@ -286,6 +319,48 @@ def tool_audit(
         nomenclature=nomenclature,
     )
     return {"results": to_jsonable(results), "summary": to_jsonable(summarize(results))}
+
+
+def tool_base_reconcile(
+    requests: list[dict[str, Any]] | None = None,
+    kps: list[dict[str, Any]] | None = None,
+    tzs: list[dict[str, Any]] | None = None,
+    applications: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Сверка базовых документов. Статусы пар не считает и диск не читает."""
+    return {
+        "baseline": to_jsonable(
+            reconcile_pack(tzs or [], applications or [], requests or [], kps or [])
+        )
+    }
+
+
+def tool_build_blocks(
+    results: list[dict[str, Any]],
+    requests: list[dict[str, Any]],
+    kps: list[dict[str, Any]],
+    tzs: list[dict[str, Any]],
+    applications: list[dict[str, Any]] | None = None,
+    baseline: dict[str, Any] | None = None,
+    nmck: list[dict[str, Any]] | None = None,
+    security_documents: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "results": results,
+        "requests": requests,
+        "kps": kps,
+        "tzs": tzs,
+    }
+    if applications is not None:
+        state["applications"] = applications
+    if baseline is not None:
+        state["baseline"] = baseline
+    if nmck is not None:
+        state["nmck"] = nmck
+    if security_documents is not None:
+        state["security_documents"] = security_documents
+    blocks = build_blocks(state)
+    return {"blocks": to_jsonable(blocks), "conclusion": to_jsonable(build_conclusion(blocks))}
 
 
 def tool_critique_pack(
@@ -392,9 +467,14 @@ _register(
 _register(
     ToolSpec(
         name="load_incoming",
-        description="Прочитать папки incoming/requests, incoming/kp, incoming/tz.",
+        description="Прочитать папки incoming/requests, incoming/kp, incoming/tz, incoming/applications.",
         parameters=_object(
-            {"incoming": {"type": "string", "description": "Корень с подпапками requests, kp, tz."}},
+            {
+                "incoming": {
+                    "type": "string",
+                    "description": "Корень с подпапками requests, kp, tz, applications.",
+                }
+            },
             ["incoming"],
         ),
         handler=tool_load_incoming,
@@ -403,8 +483,9 @@ _register(
                 "requests": {"type": "array", "items": REQUEST_SCHEMA},
                 "kps": {"type": "array", "items": KP_SCHEMA},
                 "tzs": {"type": "array", "items": TZ_SCHEMA},
+                "applications": {"type": "array", "items": APPLICATION_SCHEMA},
             },
-            ["requests", "kps", "tzs"],
+            ["requests", "kps", "tzs", "applications"],
         ),
     )
 )
@@ -416,7 +497,12 @@ _register(
             "LLM-предложения принимаются только после regex/dates.py. Даты не додумываются."
         ),
         parameters=_object(
-            {"incoming": {"type": "string", "description": "Корень с подпапками requests, kp, tz."}},
+            {
+                "incoming": {
+                    "type": "string",
+                    "description": "Корень с подпапками requests, kp, tz, applications.",
+                }
+            },
             ["incoming"],
         ),
         handler=tool_structure_incoming,
@@ -425,8 +511,9 @@ _register(
                 "requests": {"type": "array", "items": REQUEST_SCHEMA},
                 "kps": {"type": "array", "items": KP_SCHEMA},
                 "tzs": {"type": "array", "items": TZ_SCHEMA},
+                "applications": {"type": "array", "items": APPLICATION_SCHEMA},
             },
-            ["requests", "kps", "tzs"],
+            ["requests", "kps", "tzs", "applications"],
         ),
     )
 )
@@ -547,6 +634,53 @@ _register(
                 "summary": {"type": "object"},
             },
             ["results", "summary"],
+        ),
+    )
+)
+_register(
+    ToolSpec(
+        name="base_reconcile",
+        description=(
+            "Шаг 2.1 и шаг 2.2: сверка ТЗ, заявки и запроса, затем КП с каждым вариантом. "
+            "Статусы пар не пересчитывает."
+        ),
+        parameters=_object(
+            {
+                "requests": {"type": "array", "items": REQUEST_SCHEMA},
+                "kps": {"type": "array", "items": KP_SCHEMA},
+                "tzs": {"type": "array", "items": TZ_SCHEMA},
+                "applications": {"type": "array", "items": APPLICATION_SCHEMA},
+            },
+            [],
+        ),
+        handler=tool_base_reconcile,
+        returns=_object({"baseline": {"type": "object"}}, ["baseline"]),
+    )
+)
+_register(
+    ToolSpec(
+        name="build_blocks",
+        description="Собрать 8 блоков проверки из уже посчитанных результатов. Диск не читает.",
+        parameters=_object(
+            {
+                "results": {"type": "array", "items": PAIR_RESULT_SCHEMA},
+                "requests": {"type": "array", "items": REQUEST_SCHEMA},
+                "kps": {"type": "array", "items": KP_SCHEMA},
+                "tzs": {"type": "array", "items": TZ_SCHEMA},
+                "applications": {"type": "array", "items": APPLICATION_SCHEMA},
+                "nmck": {"type": "array"},
+                "security_documents": {"type": "array"},
+                "baseline": {"type": "object"},
+            },
+            ["results", "requests", "kps", "tzs"],
+        ),
+        handler=tool_build_blocks,
+        returns=_object(
+            {
+                "blocks": {"type": "array"},
+                "conclusion": {"type": "object"},
+            },
+            ["blocks", "conclusion"],
         ),
     )
 )

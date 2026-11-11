@@ -14,6 +14,12 @@ def write_html_report(
     dest: Path,
     compliance_log: list[dict] | None = None,
     hitl_log: list[dict] | None = None,
+    calculations_log: list[dict] | None = None,
+    conclusion: dict | None = None,
+    baseline: dict | None = None,
+    nmck_report: dict | None = None,
+    application_math: dict | None = None,
+    competition: dict | None = None,
 ) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(
@@ -21,6 +27,12 @@ def write_html_report(
             results,
             compliance_log=compliance_log,
             hitl_log=hitl_log,
+            calculations_log=calculations_log,
+            conclusion=conclusion,
+            baseline=baseline,
+            nmck_report=nmck_report,
+            application_math=application_math,
+            competition=competition,
         ),
         encoding="utf-8",
     )
@@ -32,6 +44,12 @@ def render_html(
     *,
     compliance_log: list[dict] | None = None,
     hitl_log: list[dict] | None = None,
+    calculations_log: list[dict] | None = None,
+    conclusion: dict | None = None,
+    baseline: dict | None = None,
+    nmck_report: dict | None = None,
+    application_math: dict | None = None,
+    competition: dict | None = None,
 ) -> str:
     summary = summarize(results)
     rows = "\n".join(_row(index, item) for index, item in enumerate(results, start=1))
@@ -40,6 +58,12 @@ def render_html(
     no_req = "".join(f"<li>{html.escape(item)}</li>" for item in summary["kps_without_request"])
     evidence = _compliance_html(compliance_log or [])
     decisions = _hitl_html(hitl_log or [])
+    calculations = _calculations_html(calculations_log or [])
+    conclusion_html = _conclusion_html(conclusion, confirmed=_conclusion_confirmed(hitl_log or []))
+    baseline_html = _baseline_html(baseline)
+    nmck_html = _nmck_html(nmck_report)
+    application_html = _application_html(application_math)
+    competition_html = _competition_html(competition)
     status_counts = {
         FinalStatus.MATCH: sum(item.status == FinalStatus.MATCH for item in results),
         FinalStatus.NEEDS_REVIEW: sum(item.status == FinalStatus.NEEDS_REVIEW for item in results),
@@ -86,6 +110,7 @@ def render_html(
     .ok {{ color: var(--ok); font-weight: 600; }}
     .bad {{ color: var(--bad); font-weight: 600; }}
     .warn {{ color: var(--warn); font-weight: 600; }}
+    .muted {{ color: var(--muted); font-weight: 600; }}
     ul {{ margin: 8px 0 0 18px; padding: 0; }}
     section {{ margin-top: 28px; }}
   </style>
@@ -100,6 +125,9 @@ def render_html(
     <div class="stat"><b>{len(summary["requests_without_kp"])}</b>запросов без КП</div>
     <div class="stat"><b>{len(summary["kps_without_request"])}</b>КП без запроса</div>
   </div>
+  {conclusion_html}
+  {baseline_html}
+  {competition_html}
   <table>
     <thead>
       <tr>
@@ -131,11 +159,295 @@ def render_html(
     {"<h3>КП без запроса</h3><ul>" + no_req + "</ul>" if no_req else ""}
   </section>
   {evidence}
+  {nmck_html}
+  {application_html}
+  {calculations}
   {decisions}
 </main>
 </body>
 </html>
 """
+
+
+def _conclusion_confirmed(log: list[dict]) -> bool:
+    return any(item.get("kind") == "conclusion" for item in log)
+
+
+def _conclusion_html(conclusion: dict | None, *, confirmed: bool = False) -> str:
+    blocks = (conclusion or {}).get("blocks") or []
+    if not blocks:
+        return "<section><h2>Сводное заключение</h2><p>Сводка не построена.</p></section>"
+    rows = []
+    for block in blocks:
+        block_id = str(block.get("block_id") or "")
+        status = str(block.get("status") or "—")
+        rows.append(
+            "<tr data-block=\""
+            + html.escape(block_id, quote=True)
+            + "\">"
+            f"<td>{html.escape(block_id)}</td>"
+            f"<td>{html.escape(str(block.get('title') or '—'))}</td>"
+            f"<td class=\"{_block_status_class(status)}\">{html.escape(status)}</td>"
+            f"<td>{html.escape(str(block.get('reason') or '—'))}</td>"
+            "</tr>"
+        )
+    verdict = html.escape(str((conclusion or {}).get("verdict") or "—"))
+    reason = html.escape(str((conclusion or {}).get("verdict_reason") or "—"))
+    risks = _text_items((conclusion or {}).get("critical_risks") or [], "Критических рисков в сводке нет.")
+    clarifications = _text_items(
+        [
+            (
+                f"{item.get('text')} — {item.get('owner')}"
+                if isinstance(item, dict) and item.get("owner")
+                else (item.get("text") if isinstance(item, dict) else item)
+            )
+            for item in (conclusion or {}).get("clarifications") or []
+        ],
+        "Пунктов, требующих уточнения, нет.",
+    )
+    linked = _text_items(
+        [
+            item.get("text") if isinstance(item, dict) else item
+            for item in (conclusion or {}).get("linked_risks") or []
+        ],
+        "Связанных рисков нет.",
+    )
+    confirmation = (
+        "Заключение подтверждено оператором."
+        if confirmed
+        else "Заключение не подтверждено оператором."
+    )
+    return (
+        "<section><h2>Сводное заключение</h2>"
+        f"<p><b>Итог:</b> {verdict}</p>"
+        f"<p>{reason}</p>"
+        f"<p>{html.escape(confirmation)}</p>"
+        "<table><thead><tr><th>Блок</th><th>Проверка</th><th>Статус</th><th>Комментарий</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+        "<h3>Связанные риски</h3>"
+        f"<ul>{linked}</ul>"
+        "<h3>Критические риски</h3>"
+        f"<ul>{risks}</ul>"
+        "<h3>Требует уточнения</h3>"
+        f"<ul>{clarifications}</ul></section>"
+    )
+
+
+def _baseline_html(baseline: dict | None) -> str:
+    if baseline is None:
+        return ""
+    return (
+        "<section><h2>Сверка базовых документов</h2>"
+        "<h3>Шаг 2.1. ТЗ, заявка и запрос</h3>"
+        + _baseline_step_table(baseline.get("rows") or [])
+        + "<h3>Шаг 2.2. КП и источник требования</h3>"
+        + _offer_step_table(baseline.get("offer_rows") or [])
+        + "</section>"
+    )
+
+
+def _baseline_step_table(rows: list[dict]) -> str:
+    body = []
+    for row in rows:
+        sources = {
+            str(source.get("document")): _source_verbatim(source)
+            for source in row.get("sources") or []
+            if isinstance(source, dict)
+        }
+        status = str(row.get("status") or "—")
+        body.append(
+            "<tr>"
+            f"<td class=\"{_baseline_status_class(status)}\">{html.escape(status)}</td>"
+            f"<td>{html.escape(sources.get('ТЗ', '—'))}</td>"
+            f"<td>{html.escape(sources.get('Заявка', '—'))}</td>"
+            f"<td>{html.escape(sources.get('Запрос', '—'))}</td>"
+            f"<td>{html.escape(str(row.get('note') or '—'))}</td>"
+            "</tr>"
+        )
+    if not body:
+        body.append("<tr><td colspan=\"5\">Строк сверки нет.</td></tr>")
+    return (
+        "<table><thead><tr><th>Статус</th><th>ТЗ</th><th>Заявка</th><th>Запрос</th><th>Замечание</th></tr></thead>"
+        f"<tbody>{''.join(body)}</tbody></table>"
+    )
+
+
+def _offer_step_table(rows: list[dict]) -> str:
+    body = []
+    for row in rows:
+        status = str(row.get("status") or "—")
+        body.append(
+            "<tr>"
+            f"<td>{html.escape(str(row.get('position_no') or '—'))}</td>"
+            f"<td>{html.escape(str(row.get('position_name') or '—'))}</td>"
+            f"<td>{html.escape(str(row.get('supplier') or '—'))}</td>"
+            f"<td>{html.escape(str(row.get('requirement_source') or '—'))}</td>"
+            f"<td class=\"{_baseline_status_class(status)}\">{html.escape(status)}</td>"
+            f"<td>{html.escape(str(row.get('requirement_text') or '—'))}</td>"
+            f"<td>{html.escape(str(row.get('offer_text') or '—'))}</td>"
+            "</tr>"
+        )
+    if not body:
+        body.append("<tr><td colspan=\"7\">Строк сравнения с КП нет.</td></tr>")
+    return (
+        "<table><thead><tr><th>№</th><th>Позиция</th><th>Поставщик</th><th>Источник требования</th>"
+        "<th>Статус</th><th>Требование</th><th>КП</th></tr></thead>"
+        f"<tbody>{''.join(body)}</tbody></table>"
+    )
+
+
+def _source_verbatim(source: dict) -> str:
+    return " | ".join(
+        str(source.get(key) or "") for key in ("name", "specs", "unit", "qty")
+    )
+
+
+def _baseline_status_class(status: str) -> str:
+    if status in {"Полностью согласовано", "Соответствует"}:
+        return "ok"
+    if status in {"Не соответствует", "Нет базового требования"}:
+        return "bad"
+    if status in {"Расхождение между базовыми документами", "Отсутствует в одном из документов"}:
+        return "warn"
+    return "muted"
+
+
+def _text_items(items: list, empty: str) -> str:
+    texts = [str(item).strip() for item in items if item is not None and str(item).strip()]
+    if not texts:
+        return f"<li>{html.escape(empty)}</li>"
+    return "".join(f"<li>{html.escape(text)}</li>" for text in texts)
+
+
+def _block_status_class(status: str) -> str:
+    if status == "Проверен, замечаний нет":
+        return "ok"
+    if status == "Проверен, критичные ошибки":
+        return "bad"
+    if status == "Проверен, есть замечания":
+        return "warn"
+    return "muted"
+
+
+def _competition_html(report: dict | None) -> str:
+    if not report:
+        return ""
+    rows = []
+    for row in report.get("rows") or []:
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row.get('position') or '—'))}</td>"
+            f"<td>{html.escape(str(row.get('manufacturer_count') if row.get('manufacturer_count') is not None else '—'))}</td>"
+            f"<td>{html.escape(str(row.get('manufacturers') or '—'))}</td>"
+            f"<td>{html.escape(str(row.get('countries') or '—'))}</td>"
+            f"<td>{html.escape(str(row.get('measure') or '—'))}</td>"
+            f"<td>{html.escape(str(row.get('status') or '—'))}</td>"
+            "</tr>"
+        )
+    body = "".join(rows) or "<tr><td colspan=\"6\">Позиций КП нет.</td></tr>"
+    notes = "".join(f"<li>{html.escape(item.get('text') or '')}</li>" for item in report.get("findings") or [])
+    return (
+        "<section><h2>Блок 3. Производители и нацрежим</h2>"
+        "<table><thead><tr><th>Позиция</th><th>Производителей</th><th>Названия</th>"
+        "<th>Страны</th><th>Мера</th><th>Статус</th></tr></thead>"
+        f"<tbody>{body}</tbody></table><ul>{notes}</ul></section>"
+    )
+
+
+def _nmck_html(report: dict | None) -> str:
+    if not report:
+        return ""
+    note = report.get("justification_note") or "Сверка с файлом обоснования выполнена."
+    rows = []
+    for row in report.get("rows") or []:
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row.get('position') or '—'))}</td>"
+            f"<td>{html.escape(_num(row.get('mean')))}</td>"
+            f"<td>{html.escape(_num(row.get('alternate_mean')))}</td>"
+            f"<td>{html.escape(_num(row.get('coefficient')))}</td>"
+            f"<td>{html.escape(str(row.get('status') or '—'))}</td>"
+            f"<td>{html.escape(_num(row.get('unit_nmck')))}</td>"
+            f"<td>{html.escape(str(row.get('quantity') if row.get('quantity') is not None else row.get('quantity_status') or '—'))}</td>"
+            "</tr>"
+        )
+    body = "".join(rows) or "<tr><td colspan=\"7\">Пересчёт по КП не дал строк.</td></tr>"
+    diffs = "".join(f"<li>{html.escape(item.get('text') or '')}</li>" for item in report.get("justification_diffs") or [])
+    flags = "".join(
+        f"<li>{html.escape(item.get('text') or '')}</li>"
+        for row in report.get("rows") or []
+        for item in row.get("antidumping") or []
+    )
+    return (
+        "<section><h2>Расчёт НМЦК</h2>"
+        f"<p>{html.escape(str(note))}</p>"
+        "<table><thead><tr><th>Позиция</th><th>Среднее</th><th>Второй расчёт</th>"
+        "<th>V</th><th>Статус</th><th>НМЦК за единицу</th><th>Количество</th></tr></thead>"
+        f"<tbody>{body}</tbody></table>"
+        "<h3>Расхождения с обоснованием</h3>"
+        f"<ul>{diffs or '<li>Нет</li>'}</ul>"
+        "<h3>Антидемпинг</h3>"
+        f"<ul>{flags or '<li>Нет</li>'}</ul></section>"
+    )
+
+
+def _application_html(report: dict | None) -> str:
+    reports = (report or {}).get("reports") or []
+    if report is None:
+        return ""
+    if not reports:
+        return "<section><h2>Арифметика заявки</h2><p>Заявка не загружена. Арифметика КП — отдельная секция.</p></section>"
+    rows = []
+    for item in reports:
+        for line in item.get("lines") or []:
+            rows.append(
+                "<tr>"
+                f"<td>{html.escape(str(line.get('position') or '—'))}</td>"
+                f"<td>{html.escape(str(line.get('status') or '—'))}</td>"
+                f"<td>{html.escape(_num(line.get('net')))}</td>"
+                f"<td>{html.escape(_num(line.get('vat_amount')))}</td>"
+                f"<td>{html.escape(str(line.get('note') or '—'))}</td>"
+                "</tr>"
+            )
+    body = "".join(rows) or "<tr><td colspan=\"5\">Строк заявки нет.</td></tr>"
+    return (
+        "<section><h2>Арифметика заявки</h2>"
+        "<table><thead><tr><th>Позиция</th><th>Статус</th><th>Сумма</th><th>НДС</th><th>Комментарий</th></tr></thead>"
+        f"<tbody>{body}</tbody></table></section>"
+    )
+
+
+def _num(value: object) -> str:
+    if isinstance(value, (int, float)):
+        return f"{float(value):.2f}"
+    return "—" if value is None else str(value)
+
+
+def _calculations_html(log: list[dict]) -> str:
+    if not log:
+        return ""
+    rows = []
+    for item in log:
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(item.get('supplier', '—')))}</td>"
+            f"<td>{html.escape(Path(str(item.get('source_file', '—'))).name)}</td>"
+            f"<td>{html.escape(str(item.get('total', '—')))}</td>"
+            f"<td>{html.escape(str(item.get('declared_total', 'не найден')))}</td>"
+            f"<td>{html.escape(str(item.get('difference', '—')))}</td>"
+            f"<td>{html.escape(str(item.get('arithmetic_status', '—')).upper())}</td>"
+            f"<td>{html.escape(str(item.get('arithmetic_reason') or '—'))}</td>"
+            "</tr>"
+        )
+    return (
+        "<section><h2>Арифметика КП</h2>"
+        "<table><thead><tr><th>Поставщик</th><th>Файл</th>"
+        "<th>Расчётный итог</th><th>Итог в КП</th><th>Расхождение</th>"
+        "<th>Статус</th><th>Комментарий</th></tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table>"
+        "<p class='meta'>Итог КП = Σ (количество × цена за единицу).</p></section>"
+    )
 
 
 def _compliance_html(log: list[dict]) -> str:

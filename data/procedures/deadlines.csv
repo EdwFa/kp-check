@@ -1,0 +1,10 @@
+type,submission_min,submission_max,submission_unit,review_min,review_max,review_unit,contract_min,contract_max,contract_unit
+Открытый конкурс,15,15,calendar_day,10,10,calendar_day,10,20,calendar_day
+Открытый аукцион,15,15,calendar_day,5,5,calendar_day,10,20,calendar_day
+Закрытый аукцион,15,15,calendar_day,5,5,calendar_day,10,20,calendar_day
+Запрос котировок (общий),5,5,business_day,3,3,calendar_day,5,5,calendar_day
+Запрос котировок для СМиСП,4,4,business_day,3,3,calendar_day,5,5,calendar_day
+Конкурс для СМиСП (НМЦК до 30 млн руб.),7,7,calendar_day,10,10,calendar_day,10,20,calendar_day
+Аукцион для СМиСП (НМЦК до 30 млн руб.),7,7,calendar_day,5,5,calendar_day,10,20,calendar_day
+Запрос предложений для СМиСП,5,5,business_day,3,3,calendar_day,10,20,calendar_day
+Закупка у единственного поставщика,,,none,,,none,,,none

@@ -1,0 +1,27 @@
+[
+  {
+    "id": "missing-kp",
+    "description": "Удалено коммерческое предложение",
+    "operation": "missing_kp"
+  },
+  {
+    "id": "supplier-mismatch",
+    "description": "Поставщик КП не совпадает с адресатом запроса",
+    "operation": "supplier_mismatch"
+  },
+  {
+    "id": "date-violation",
+    "description": "КП подготовлено раньше отправки запроса",
+    "operation": "date_violation"
+  },
+  {
+    "id": "unit-mismatch",
+    "description": "Единица измерения КП не совпадает с ТЗ",
+    "operation": "unit_mismatch"
+  },
+  {
+    "id": "spec-mismatch",
+    "description": "Характеристика КП намеренно изменена",
+    "operation": "spec_mismatch"
+  }
+]

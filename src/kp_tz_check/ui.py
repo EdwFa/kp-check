@@ -81,7 +81,7 @@ def _check_workspace() -> None:
     if run:
         with st.spinner("Читаю документы и сверяю комплект…"):
             if provider == "Без LLM":
-                requests, kps, tzs = load_incoming(incoming)
+                requests, kps, tzs, _applications = load_incoming(incoming)
                 results = audit(requests, kps, tzs)
                 compliance = apply_compliance(to_jsonable(results), kps=to_jsonable(kps))
                 serialized_results = compliance["results"]
@@ -124,7 +124,7 @@ def _check_workspace() -> None:
                         f"Добавьте его в .env и перезапустите Streamlit."
                     )
                     return
-                requests, kps, tzs = load_incoming(incoming)
+                requests, kps, tzs, _applications = load_incoming(incoming)
                 state = run_pack(incoming=incoming, llm_client=client)
                 serialized_results = state.get("results") or []
                 compliance = {
@@ -322,11 +322,36 @@ def _metrics(summary: dict, counts: dict) -> None:
         st.caption(f"Для анализа рынка получено {counts.get('kps', 0)} КП (минимум {MIN_MARKET_KPS}).")
 
 
-def _results_table(results: list[PairResult]) -> None:
+def _results_table(results: list[PairResult], kp_viewer=None) -> None:
     st.subheader("Таблица по парам «запрос — КП»")
     rows = table_rows(results)
-    frame = pd.DataFrame(rows)
-    st.dataframe(frame, use_container_width=True, hide_index=True, height=min(480, 72 + 48 * max(len(rows), 1)))
+    if kp_viewer is None:
+        frame = pd.DataFrame(rows)
+        st.dataframe(
+            frame,
+            use_container_width=True,
+            hide_index=True,
+            height=min(480, 72 + 48 * max(len(rows), 1)),
+        )
+        return
+
+    header = st.columns([0.08, 0.34, 0.34, 0.24])
+    for column, title in zip(header, ("№", "Запрос", "Файл КП", "Статус")):
+        column.markdown(f"**{title}**")
+    for index, (item, row) in enumerate(zip(results, rows), start=1):
+        columns = st.columns([0.08, 0.34, 0.34, 0.24])
+        columns[0].write(index)
+        columns[1].write(row.get("Запрос (дата отправки)", "—"))
+        if item.kp:
+            if columns[2].button(
+                row.get("Файл КП", item.kp.source_file.name),
+                key=f"open-kp-{index}-{item.kp.source_file}",
+                use_container_width=True,
+            ):
+                kp_viewer(item.kp.source_file)
+        else:
+            columns[2].write("—")
+        columns[3].write(item.status.value)
 
 
 def _pair_details(results: list[PairResult]) -> None:

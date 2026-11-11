@@ -167,6 +167,7 @@ def test_structure_incoming_matches_parser_without_proposer():
     assert [item.outgoing_no for item in left[0]] == [item.outgoing_no for item in right[0]]
     assert [item.sent_on for item in left[0]] == [item.sent_on for item in right[0]]
     assert [item.registered_on for item in left[1]] == [item.registered_on for item in right[1]]
+    assert [item.source_file for item in left[3]] == [item.source_file for item in right[3]]
     via_tool = invoke("structure_incoming", {"incoming": str(incoming)})
     assert [item["outgoing_no"] for item in via_tool["requests"]] == ["2738", "2737", "2739", "2740", "2741"]
     assert {item["registered_on"] for item in via_tool["kps"]} == {
