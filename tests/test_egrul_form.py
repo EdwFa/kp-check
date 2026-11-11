@@ -19,8 +19,8 @@ from kp_tz_check.egrul_form import (
 from kp_tz_check.registries import build_registry
 from kp_tz_check.supplier_checks import check_suppliers
 
-TOKEN = "A1B2C3D4E5F60789"
-ROW_TOKEN = "F1E2D3C4B5A60789"
+TOKEN = "searchtoken"
+ROW_TOKEN = "extracttoken"
 
 
 def _response(payload: dict, *, location: str = "") -> dict:
