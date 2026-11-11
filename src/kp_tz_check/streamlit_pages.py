@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -332,6 +333,13 @@ def render_header(title: str, description: str) -> None:
     st.caption(description)
 
 
+_COLUMN_BLOCK = re.compile(
+    r"<!-- kp-columns -->\s*(.*?)\s*<!-- /kp-columns -->",
+    re.DOTALL,
+)
+_MERMAID_FENCE = re.compile(r"```mermaid\n(.*?)```", re.DOTALL)
+
+
 def render_project_markdown(path: Path) -> None:
     """Показать файл документации. Ссылки на README и схему ведут на страницы приложения."""
     text = path.read_text(encoding="utf-8")
@@ -342,4 +350,39 @@ def render_project_markdown(path: Path) -> None:
         ("](README.md)", "](/README)"),
     ):
         text = text.replace(source, target)
-    st.markdown(text)
+    _render_markdown_with_columns(text)
+
+
+def _render_markdown_with_columns(text: str) -> None:
+    """Блок kp-columns показывает две схемы рядом. В файле они идут друг за другом."""
+    pos = 0
+    for match in _COLUMN_BLOCK.finditer(text):
+        before = text[pos : match.start()].strip("\n")
+        if before.strip():
+            st.markdown(before)
+        _render_two_columns(match.group(1))
+        pos = match.end()
+    rest = text[pos:].strip("\n")
+    if rest.strip():
+        st.markdown(rest)
+
+
+def _render_two_columns(body: str) -> None:
+    """Две схемы Mermaid в соседних колонках."""
+    parts = _MERMAID_FENCE.split(body)
+    if len(parts) < 4:
+        st.markdown(body)
+        return
+    before, first, between, second, *tail = parts
+    left, right = st.columns(2)
+    with left:
+        if before.strip():
+            st.markdown(before.strip())
+        st.markdown(f"```mermaid\n{first}```")
+    with right:
+        if between.strip():
+            st.markdown(between.strip())
+        st.markdown(f"```mermaid\n{second}```")
+    leftover = "".join(tail).strip()
+    if leftover:
+        st.markdown(leftover)

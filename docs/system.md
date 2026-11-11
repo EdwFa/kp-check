@@ -36,18 +36,37 @@ flowchart TD
 
 Один прогон `run_pack` в [src/kp_tz_check/graph.py](../src/kp_tz_check/graph.py):
 
+<!-- kp-columns -->
+**Шаги 1–5**
+
 ```mermaid
-flowchart LR
-  load[load] --> pair[pair]
-  pair --> nomenclature[nomenclature]
-  nomenclature --> baseReconcile[base_reconcile]
-  baseReconcile --> audit[audit]
-  audit --> blocks[blocks]
-  blocks --> compliance[compliance]
-  compliance --> critic[critic]
-  critic --> hitl[hitl]
-  hitl --> report[report]
+flowchart TD
+  load["load · загрузка комплекта"]
+  pair["pair · пары запрос и КП"]
+  nomenclature["nomenclature · номенклатура"]
+  baseReconcile["base_reconcile · сверка позиций"]
+  audit["audit · статус пары"]
+  load --> pair
+  pair --> nomenclature
+  nomenclature --> baseReconcile
+  baseReconcile --> audit
 ```
+
+**Шаги 6–10**
+
+```mermaid
+flowchart TD
+  blocks["blocks · восемь блоков"]
+  compliance["compliance · доказательства"]
+  critic["critic · только понижает статус"]
+  hitl["hitl · решение оператора"]
+  report["report · текст и HTML"]
+  blocks --> compliance
+  compliance --> critic
+  critic --> hitl
+  hitl --> report
+```
+<!-- /kp-columns -->
 
 | Шаг | Что делает |
 |---|---|

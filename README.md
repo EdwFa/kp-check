@@ -23,19 +23,39 @@
 8. **Диагностика** и **Настройки** лежат в разделе «Служебные». Диагностика сверяет регрессию и не входит в функции ТЗ.
 9. **README** и **Схема работы** лежат в разделе «Статус проекта» и показывают эти документы.
 
+<!-- kp-columns -->
+**Шаги 1–6**
+
 ```mermaid
-flowchart LR
-  files[incoming] --> load[Загрузка]
-  load --> pair[Пары запрос КП]
-  pair --> nomenclature[Номенклатура]
-  nomenclature --> baseline[Сверка позиций]
-  baseline --> audit[Аудит пар]
-  audit --> blocks[Восемь блоков]
-  blocks --> compliance[Доказательства]
-  compliance --> critic[Critic]
-  critic --> hitl[Решение оператора]
-  hitl --> report[Отчёт HTML]
+flowchart TD
+  files["incoming · файлы комплекта"]
+  load["Загрузка"]
+  pair["Пары запрос и КП"]
+  nomenclature["Номенклатура"]
+  baseline["Сверка позиций"]
+  audit["Аудит пар"]
+  files --> load
+  load --> pair
+  pair --> nomenclature
+  nomenclature --> baseline
+  baseline --> audit
 ```
+
+**Шаги 7–11**
+
+```mermaid
+flowchart TD
+  blocks["Восемь блоков"]
+  compliance["Доказательства"]
+  critic["Critic · только понижает статус"]
+  hitl["Решение оператора"]
+  report["Отчёт HTML"]
+  blocks --> compliance
+  compliance --> critic
+  critic --> hitl
+  hitl --> report
+```
+<!-- /kp-columns -->
 
 Critic смотрит серую зону и может только понизить статус пары. Поиск характеристик, форма ЕГРЮЛ и живые реестры в эту цепочку не входят.
 
