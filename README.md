@@ -88,32 +88,60 @@ Critic смотрит серую зону и может только пониз�
 
 ## Запуск
 
+macOS и Linux:
+
 ```bash
 .venv/bin/python -m pip install -r requirements.txt
 PYTHONPATH=src .venv/bin/python -m streamlit run app.py
 ```
 
-CLI без графа пишет текстовую сводку пар и HTML. С `--graph` проходит цепочку целиком:
+Windows:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m streamlit run app.py
+```
+
+CLI без графа пишет текстовую сводку пар и HTML. С `--graph` проходит цепочку целиком.
+
+macOS и Linux:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m kp_tz_check --incoming incoming --out reports/report.html
 PYTHONPATH=src .venv/bin/python -m kp_tz_check --graph --incoming incoming --out reports/report.html
+PYTHONPATH=src .venv/bin/python -m pytest -q
 ```
 
-Тесты:
+Windows:
 
-```bash
-PYTHONPATH=src .venv/bin/python -m pytest -q
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m kp_tz_check --incoming incoming --out reports/report.html
+.\.venv\Scripts\python.exe -m kp_tz_check --graph --incoming incoming --out reports/report.html
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 ### Опциональный private LLM
 
 По умолчанию граф работает без LLM. Для локальной модели через Unsloth Studio или другой OpenAI-compatible сервер:
 
+macOS и Linux:
+
 ```bash
 cp .env.example .env
 # UNSLOTH_API_KEY=sk-unsloth-...
-PYTHONPATH=src python -m kp_tz_check --graph
+PYTHONPATH=src .venv/bin/python -m kp_tz_check --graph
+```
+
+Windows:
+
+```powershell
+Copy-Item .env.example .env
+# UNSLOTH_API_KEY=sk-unsloth-...
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m kp_tz_check --graph
 ```
 
 `UNSLOTH_API_KEY`, `TOGETHER_API_KEY` и другие ключи читаются из `.env` и не показываются в интерфейсе. Модели задаются через `UNSLOTH_MODEL`, `OLLAMA_MODEL` или `TOGETHER_MODEL`. `KP_LLM_BASE_URL` указывается без `/v1`. Если endpoint недоступен, запуск с LLM завершается ошибкой. Обычный режим без `KP_LLM_ENABLED=true` остаётся детерминированным.
@@ -121,7 +149,12 @@ PYTHONPATH=src python -m kp_tz_check --graph
 Проверка endpoint без документов:
 
 ```bash
-PYTHONPATH=src python -m kp_tz_check.llm_smoke
+PYTHONPATH=src .venv/bin/python -m kp_tz_check.llm_smoke
+```
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m kp_tz_check.llm_smoke
 ```
 
 ### Диагностика
@@ -129,7 +162,12 @@ PYTHONPATH=src python -m kp_tz_check.llm_smoke
 Регрессия сравнивает прямой аудит и проход графа по отпечаткам пар:
 
 ```bash
-PYTHONPATH=src python -m kp_tz_check.eval --incoming incoming
+PYTHONPATH=src .venv/bin/python -m kp_tz_check.eval --incoming incoming
+```
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m kp_tz_check.eval --incoming incoming
 ```
 
 Страница в интерфейсе называется **Диагностика**. Адрес страницы остаётся `/Eval`.
